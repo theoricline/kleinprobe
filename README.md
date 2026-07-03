@@ -1,6 +1,6 @@
 # KleinProbe
 
-**Circuit-aware hardware observability layer for IBM Quantum.**
+**Circuit-conditioned hardware probing layer for IBM Quantum systems**
 
 ```
 backend.properties()  →  KleinProbe  →  your experiment
@@ -8,21 +8,41 @@ backend.properties()  →  KleinProbe  →  your experiment
                           snapshot]
 ```
 
-KleinProbe answers the question `backend.properties()` cannot:
+---
 
-> *"What is the noise of **this circuit** on **these qubits** right now?"*
+## Overview
+
+KleinProbe uses a fixed stabilizer circuit to sample syndrome statistics on the same physical qubits selected by the transpiler for a given target experiment.
+
+The resulting metrics (syndrome entropy and invariant fraction) characterize the effective noise experienced by that specific circuit instance, including **layout-dependent and time-dependent effects not fully captured by static device calibration data alone**.
+
+KleinProbe does not modify hardware, error correction schemes, or execution paths. It is a diagnostic layer that runs alongside quantum experiments.
 
 ---
 
 ## The problem
 
-`backend.properties()` gives you yesterday's calibration for all 156 qubits.  
-Your circuit runs on 18 of them — a different 18 every time the transpiler runs.  
-The global calibration tells you almost nothing about what your specific circuit will experience.
+`backend.properties()` provides calibration data for all qubits on a device, typically updated on a daily timescale.
 
-KleinProbe fixes this. It runs a lightweight structured probe on the **same physical qubits your circuit uses**, in the **same transpilation context**, and returns noise metrics that are actually representative of your experiment's hardware conditions.
+However:
+- Your circuit is executed on a **subset of qubits selected dynamically by the transpiler**
+- That subset changes across runs depending on optimization, routing, and circuit structure
+- Calibration data is not conditioned on the actual circuit layout or execution instance
+
+As a result, static calibration may not fully represent the **effective noise environment experienced by a specific circuit execution**
 
 ---
+
+## KleinProbe approach
+
+KleinProbe achieves this by:
+- Running a lightweight structured **probe circuit**
+- Executing it on the **same physical qubits selected for your target circuit**
+- Using the same transpilation context where possible
+- Extracting syndrome-based statistical metrics from the hardware response
+
+This produces a **circuit-conditioned noise snapshot** aligned with the actual execution environment of your experiment.
+
 
 ## Install
 
@@ -72,7 +92,7 @@ KleinProbe Snapshot — 2026-04-08T16:14:52Z
 
 ## Drift tracking
 
-Monitor calibration drift across a long experiment:
+KleinProbe can be used to monitor execution-time drift across experiments.
 
 ```python
 tracker = probe.track()
@@ -119,7 +139,7 @@ ALERTS:
 | `f` | Dominant pattern frequency | Topological SNR |
 | `Z` | Significance vs flat baseline | Circuit health — healthy chip: Z > 100σ |
 
-These metrics are **circuit-conditioned**: they reflect the physical qubits your circuit actually uses, not the device average.
+These metrics are derived from hardware response to a fixed probe circuit executed in the same layout context as the target experiment.
 
 ---
 
@@ -131,8 +151,8 @@ Layer 2  KleinProbe             circuit-aware snapshot  this module
 Layer 3  your experiment        actual results          you run
 ```
 
-Layer 2 is the missing piece. IBM gives you Layer 1. You produce Layer 3.  
-KleinProbe fills the gap between them.
+KleinProbe provides a missing intermediate abstraction:
+circuit-conditioned hardware profiling
 
 ---
 
@@ -227,13 +247,10 @@ register_baseline(Baseline(
 
 ## Background
 
-KleinProbe is based on the Klein bottle stabilizer code — a non-orientable
-topological stabilizer code whose syndrome output is analytically predictable.
-This makes it an effective probe: the topology tells you what *should* happen;
-the hardware tells you what *does* happen; the gap characterises the noise.
+KleinProbe is based on a structured stabilizer probe circuit derived from a non-orientable topological construction.
+The topology is used as a fixed, reproducible measurement kernel, enabling consistent sampling of syndrome statistics across hardware conditions.
+The probe circuit is used to extract circuit-conditioned noise signatures rather than to perform error correction.
 
-The probe circuit uses the 3×2 Klein code (18 qubits) with boundary
-parameter δ ∈ {0,1,2} selecting distinct predicted syndrome patterns.
 Validated on IBM Fez, Marrakesh, and Kingston across multiple sessions.
 
 **References:**
