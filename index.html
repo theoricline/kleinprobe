@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KleinProbe — Circuit-Aware Hardware Observability for IBM Quantum</title>
+<meta name="description" content="KleinProbe tells you what the hardware is doing under your specific circuit, not what the device datasheet says it should be doing.">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0f; --bg2: #11111c; --bg3: #0d0d18;
+    --text: #e8e4d9; --text-dim: #7a7870; --text-muted: #4a4845;
+    --blue: #4fc3f7; --orange: #ff6b35; --green: #4caf50;
+    --amber: #ffa726; --border: #1e1e2e;
+  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif;
+    font-size: 15px; line-height: 1.65; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Layout ── */
+  .container { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Nav ── */
+  nav { border-bottom: 1px solid var(--border); padding: 18px 0; position: sticky;
+    top: 0; background: rgba(10,10,15,0.95); backdrop-filter: blur(8px); z-index: 10; }
+  nav .inner { display: flex; align-items: center; justify-content: space-between;
+    max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  .nav-logo { font-family: 'JetBrains Mono', monospace; font-size: 14px;
+    font-weight: 600; color: var(--text); letter-spacing: -0.02em; }
+  .nav-logo span { color: var(--orange); }
+  .nav-links { display: flex; gap: 28px; }
+  .nav-links a { font-size: 13px; color: var(--text-dim); }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+  /* ── Hero ── */
+  .hero { padding: 80px 0 64px; border-bottom: 1px solid var(--border); }
+  .eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    letter-spacing: 0.15em; color: var(--blue); text-transform: uppercase;
+    margin-bottom: 20px; }
+  h1 { font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(30px, 5.5vw, 52px); font-weight: 700;
+    line-height: 1.08; letter-spacing: -0.025em; margin-bottom: 22px; }
+  h1 span { color: var(--orange); }
+  .hero-sub { font-size: 17px; color: var(--text-dim); max-width: 540px;
+    margin-bottom: 44px; line-height: 1.7; }
+
+  /* ── Install bar ── */
+  .install-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 48px; }
+  .install-cmd { background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 20px; font-family: 'JetBrains Mono', monospace;
+    font-size: 14px; color: var(--blue); display: flex; align-items: center; gap: 10px; }
+  .install-cmd .prompt { color: var(--text-muted); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px;
+    border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer;
+    border: none; text-decoration: none; transition: opacity 0.15s; }
+  .btn:hover { opacity: 0.85; text-decoration: none; }
+  .btn-primary { background: var(--orange); color: #0a0a0f; }
+  .btn-secondary { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
+
+  /* ── Syndrome animation ── */
+  .syndrome-wrap { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .syndrome-display { display: flex; gap: 7px; }
+  .bit { width: 38px; height: 38px; border-radius: 6px; display: flex;
+    align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 600;
+    border: 1.5px solid var(--border);
+    transition: background 0.08s, color 0.08s, border-color 0.08s; }
+  .bit.on    { background: var(--orange); color: #0a0a0f; border-color: var(--orange); }
+  .bit.off   { background: transparent; color: var(--text-muted); border-color: #1e1e2e; }
+  .bit.noise { background: #1a1a2e; color: var(--blue); border-color: #2a2a3e; }
+  .syndrome-label { font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-dim); line-height: 1.6; }
+  .syndrome-label strong { color: var(--orange); display: block; font-size: 12px; }
+
+  /* ── Three-layer diagram ── */
+  .layers { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px;
+    background: var(--border); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; margin: 28px 0; }
+  .layer { background: var(--bg2); padding: 22px 20px; }
+  .layer-num { font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--text-muted); letter-spacing: 0.1em; margin-bottom: 8px; }
+  .layer-name { font-family: 'Space Grotesk', sans-serif; font-size: 14px;
+    font-weight: 600; margin-bottom: 6px; }
+  .layer-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .layer.highlight { background: #110d09; }
+  .layer.highlight .layer-name { color: var(--orange); }
+  .layer-badge { display: inline-block; font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; padding: 2px 7px; border-radius: 3px; margin-top: 8px;
+    letter-spacing: 0.08em; text-transform: uppercase; }
+  .badge-ibm  { background: #111828; color: var(--blue); }
+  .badge-this { background: #1a0f08; color: var(--orange); }
+  .badge-you  { background: #111a11; color: var(--green); }
+
+  /* ── Sections ── */
+  section { padding: 56px 0; border-bottom: 1px solid var(--border); }
+  h2 { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 600;
+    letter-spacing: -0.01em; margin-bottom: 6px; }
+  h2 .tag { font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--blue); letter-spacing: 0.12em; text-transform: uppercase;
+    display: block; margin-bottom: 6px; font-weight: 400; }
+  p { margin-bottom: 14px; color: var(--text); }
+  p:last-child { margin-bottom: 0; }
+
+  /* ── Code block ── */
+  .code-block { background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 22px 24px; margin: 24px 0;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.7;
+    overflow-x: auto; }
+  .code-block .c  { color: var(--text-muted); }
+  .code-block .kw { color: var(--blue); }
+  .code-block .fn { color: var(--orange); }
+  .code-block .st { color: var(--green); }
+  .code-block .nm { color: #ce93d8; }
+
+  /* ── Metrics table ── */
+  .metrics { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 14px; }
+  .metrics th { font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim);
+    text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--border);
+    font-weight: 400; }
+  .metrics td { padding: 12px 16px; border-bottom: 1px solid #0f0f18; vertical-align: top; }
+  .metrics td:first-child { font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: var(--orange); }
+  .metrics tr:last-child td { border-bottom: none; }
+
+  /* ── Baselines table ── */
+  .baselines { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 13px; }
+  .baselines th { font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim);
+    text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--border);
+    font-weight: 400; }
+  .baselines td { padding: 11px 16px; border-bottom: 1px solid #0f0f18; }
+  .baselines td:first-child { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
+  .baselines tr:last-child td { border-bottom: none; }
+  .pending { color: var(--text-muted); font-style: italic; }
+
+  /* ── Drift example ── */
+  .drift-rows { margin: 24px 0; }
+  .drift-row { display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid #0f0f18; font-size: 13px; }
+  .drift-row:last-child { border-bottom: none; }
+  .dr-n { font-family: 'JetBrains Mono', monospace; color: var(--text-muted);
+    width: 20px; flex-shrink: 0; }
+  .dr-t { font-family: 'JetBrains Mono', monospace; color: var(--text-dim);
+    width: 70px; flex-shrink: 0; }
+  .dr-h { font-family: 'JetBrains Mono', monospace; width: 55px; flex-shrink: 0; }
+  .dr-inv { font-family: 'JetBrains Mono', monospace; width: 55px; flex-shrink: 0; }
+  .dr-label { flex: 1; color: var(--text-dim); font-size: 12px; }
+  .dr-alert { color: var(--amber); font-size: 12px; }
+  .dr-ok { color: var(--green); }
+
+  /* ── Footer ── */
+  footer { padding: 40px 0 60px; }
+  .footer-inner { display: flex; justify-content: space-between;
+    align-items: flex-start; flex-wrap: wrap; gap: 24px; }
+  .footer-left { font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--text-muted); line-height: 2.2; }
+  .footer-left a { color: var(--text-dim); }
+  .footer-links { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+  .footer-links a { font-size: 13px; color: var(--text-dim); }
+
+  @media (max-width: 600px) {
+    .layers { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+    .footer-inner { flex-direction: column; }
+    .footer-links { align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <div class="nav-logo">Klein<span>Probe</span></div>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#usage">Usage</a>
+      <a href="#metrics">Metrics</a>
+      <a href="#baselines">Baselines</a>
+      <a href="https://github.com/theoricline/kleinprobe">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── HERO ── -->
+<div class="hero">
+  <div class="container">
+    <div class="eyebrow">open source · MIT · IBM Quantum</div>
+    <h1>Circuit-aware hardware<br><span>observability</span><br>for IBM Quantum</h1>
+    <p class="hero-sub">
+      <code style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--blue)">backend.properties()</code>
+      tells you yesterday's calibration for all 156 qubits.
+      KleinProbe tells you what the hardware is doing under
+      <em>your specific circuit</em>, right now.
+    </p>
+
+    <div class="install-bar">
+      <div class="install-cmd">
+        <span class="prompt">$</span> pip install kleinprobe
+      </div>
+      <a class="btn btn-primary" href="https://github.com/theoricline/kleinprobe">View on GitHub</a>
+      <a class="btn btn-secondary" href="https://github.com/theoricline/kleinprobe#readme">Docs</a>
+    </div>
+
+    <div class="syndrome-wrap">
+      <div class="syndrome-display">
+        <div class="bit off" id="b5">0</div>
+        <div class="bit off" id="b4">0</div>
+        <div class="bit off" id="b3">0</div>
+        <div class="bit off" id="b2">0</div>
+        <div class="bit off" id="b1">0</div>
+        <div class="bit off" id="b0">0</div>
+      </div>
+      <div class="syndrome-label">
+        syndrome register converging to predicted attractor
+        <strong>δ=0 → '100001'</strong>
+        deviation from prediction = noise fingerprint
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── HOW IT WORKS ── -->
+<section id="how">
+  <div class="container">
+    <h2><span class="tag">architecture</span>Three-layer observability</h2>
+    <p>
+      KleinProbe sits between the device and your experiment,
+      projecting global calibration data onto the specific physical
+      qubits your circuit actually uses.
+    </p>
+
+    <div class="layers">
+      <div class="layer">
+        <div class="layer-num">LAYER 1</div>
+        <div class="layer-name">backend.properties()</div>
+        <div class="layer-desc">Global device state. All 156 qubits. Updated ~daily. Tells you nothing about which qubits your circuit uses.</div>
+        <span class="layer-badge badge-ibm">IBM provides</span>
+      </div>
+      <div class="layer highlight">
+        <div class="layer-num">LAYER 2</div>
+        <div class="layer-name">KleinProbe</div>
+        <div class="layer-desc">Circuit-conditioned snapshot. Projects calibration onto your layout. Measures the qubits that matter for your experiment.</div>
+        <span class="layer-badge badge-this">this module</span>
+      </div>
+      <div class="layer">
+        <div class="layer-num">LAYER 3</div>
+        <div class="layer-name">Your experiment</div>
+        <div class="layer-desc">Actual results. Now you know which jobs ran during a noisy period and which ran on a healthy chip.</div>
+        <span class="layer-badge badge-you">you run</span>
+      </div>
+    </div>
+
+    <p>
+      The probe circuit is an 18-qubit Klein bottle stabilizer code —
+      a non-orientable topological circuit whose syndrome output is
+      analytically predictable. The topology tells you what <em>should</em>
+      happen; the hardware tells you what <em>does</em> happen; the gap
+      characterises the noise.
+    </p>
+  </div>
+</section>
+
+<!-- ── USAGE ── -->
+<section id="usage">
+  <div class="container">
+    <h2><span class="tag">usage</span>Single snapshot</h2>
+    <p>Run a probe and get a noise snapshot in one call.</p>
+
+    <div class="code-block">
+<span class="kw">from</span> qiskit_ibm_runtime <span class="kw">import</span> QiskitRuntimeService<br>
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> KleinProbe<br>
+<br>
+service = QiskitRuntimeService()<br>
+backend = service.<span class="fn">backend</span>(<span class="st">"ibm_marrakesh"</span>)<br>
+<br>
+probe = <span class="fn">KleinProbe</span>(backend)<br>
+snap  = probe.<span class="fn">run</span>()<br>
+<span class="kw">print</span>(snap.<span class="fn">report</span>())
+    </div>
+
+    <h2 style="margin-top:40px"><span class="tag">usage</span>Drift tracking</h2>
+    <p>
+      Monitor calibration drift across a long experiment.
+      Each checkpoint adds ~15 seconds and runs as a PUB
+      alongside your main job — zero additional queue wait time.
+    </p>
+
+    <div class="code-block">
+tracker = probe.<span class="fn">track</span>()<br>
+<br>
+tracker.<span class="fn">checkpoint</span>(<span class="st">"before"</span>)<br>
+<span class="fn">run_my_experiment_batch_1</span>()<br>
+tracker.<span class="fn">checkpoint</span>(<span class="st">"mid"</span>)<br>
+<span class="fn">run_my_experiment_batch_2</span>()<br>
+tracker.<span class="fn">checkpoint</span>(<span class="st">"after"</span>)<br>
+<br>
+<span class="kw">print</span>(tracker.<span class="fn">report</span>())
+    </div>
+
+    <div class="drift-rows">
+      <div class="drift-row">
+        <div class="dr-n">#1</div>
+        <div class="dr-t">16:14:52</div>
+        <div class="dr-h" style="color:var(--green)">H=3.34</div>
+        <div class="dr-inv" style="color:var(--green)">inv=0.841</div>
+        <div class="dr-label">before experiment</div>
+        <div class="dr-ok">✓</div>
+      </div>
+      <div class="drift-row">
+        <div class="dr-n">#2</div>
+        <div class="dr-t">17:23:11</div>
+        <div class="dr-h" style="color:var(--green)">H=3.41</div>
+        <div class="dr-inv" style="color:var(--green)">inv=0.829</div>
+        <div class="dr-label">mid-experiment</div>
+        <div class="dr-ok">✓</div>
+      </div>
+      <div class="drift-row">
+        <div class="dr-n">#3</div>
+        <div class="dr-t">18:45:03</div>
+        <div class="dr-h" style="color:var(--amber)">H=3.89</div>
+        <div class="dr-inv" style="color:var(--amber)">inv=0.771</div>
+        <div class="dr-label">after experiment</div>
+        <div class="dr-alert">⚠ drift detected</div>
+      </div>
+    </div>
+
+    <p style="font-size:13px; color:var(--text-dim); margin-top:8px;">
+      Jobs 2 and 3 ran during a noisy period.
+      Without KleinProbe you would not know this from
+      <code style="font-size:12px">backend.properties()</code>.
+    </p>
+
+    <h2 style="margin-top:40px"><span class="tag">usage</span>Quick health check</h2>
+    <div class="code-block">
+status = probe.<span class="fn">check</span>()<br>
+<span class="c"># {'status': 'OK', 'H': 3.37, 'inv': 0.834, 'Z': 242.0, 'alert': None}</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── METRICS ── -->
+<section id="metrics">
+  <div class="container">
+    <h2><span class="tag">metrics</span>What KleinProbe measures</h2>
+    <p>
+      Four circuit-conditioned noise metrics, each sensitive to
+      a different aspect of hardware behaviour.
+    </p>
+
+    <table class="metrics">
+      <thead>
+        <tr>
+          <th>metric</th><th>meaning</th><th>sensitive to</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>H</td>
+          <td>Shannon entropy of syndrome distribution (bits)</td>
+          <td>Total noise — more noise = higher H. Increases with T2 decay and gate errors.</td>
+        </tr>
+        <tr>
+          <td>inv</td>
+          <td>Klein invariant fraction — P(syndrome bit 0 = 1)</td>
+          <td>Quality of the specific qubit hosting the antipodal edge. Sensitive to RO and T2 of that qubit.</td>
+        </tr>
+        <tr>
+          <td>f</td>
+          <td>Dominant pattern frequency</td>
+          <td>Topological SNR — how strongly the hardware reproduces the predicted syndrome.</td>
+        </tr>
+        <tr>
+          <td>Z</td>
+          <td>Z-score vs flat baseline (1/64)</td>
+          <td>Overall circuit health. Healthy chip: Z > 100σ. Z < 50σ signals routing or calibration problems.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="font-size:13px; color:var(--text-dim)">
+      All metrics are <strong style="color:var(--text)">circuit-conditioned</strong>:
+      they reflect the physical qubits your circuit uses,
+      identified from the transpiler layout automatically.
+      Not the device average.
+    </p>
+  </div>
+</section>
+
+<!-- ── BASELINES ── -->
+<section id="baselines">
+  <div class="container">
+    <h2><span class="tag">baselines</span>Hardware reference library</h2>
+    <p>
+      KleinProbe ships with validated reference values from real
+      hardware sessions. Snapshots that deviate &gt;2σ from the
+      baseline trigger a drift alert automatically.
+    </p>
+
+    <table class="baselines">
+      <thead>
+        <tr>
+          <th>backend</th><th>H (mean ± σ)</th><th>inv (mean ± σ)</th>
+          <th>sessions</th><th>source</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ibm_fez</td>
+          <td>4.50 ± 0.15</td>
+          <td>0.900 ± 0.020</td>
+          <td>6</td>
+          <td><a href="https://doi.org/10.5281/zenodo.19454514">Papers 1-6</a></td>
+        </tr>
+        <tr>
+          <td>ibm_marrakesh</td>
+          <td>3.37 ± 0.10</td>
+          <td>0.834 ± 0.020</td>
+          <td>1</td>
+          <td>Attestation experiments</td>
+        </tr>
+        <tr>
+          <td>ibm_kingston</td>
+          <td class="pending">3.80 ± 0.20 (est.)</td>
+          <td class="pending">0.870 ± 0.030 (est.)</td>
+          <td class="pending">pending</td>
+          <td><a href="https://doi.org/10.5281/zenodo.19333513">Paper 4</a></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="code-block">
+<span class="c"># Add your own baseline</span><br>
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> Baseline, register_baseline<br>
+<br>
+<span class="fn">register_baseline</span>(Baseline(<br>
+&nbsp;&nbsp;&nbsp;&nbsp;backend   = <span class="st">"ibm_torino"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;H_mean    = <span class="nm">3.50</span>, H_std   = <span class="nm">0.12</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inv_mean  = <span class="nm">0.85</span>, inv_std = <span class="nm">0.025</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;f_mean    = <span class="nm">0.47</span>, f_std   = <span class="nm">0.015</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;n_sessions = <span class="nm">1</span>,<br>
+))
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-left">
+        KleinProbe · MIT License · Leonardo Roma · 2026<br>
+        Built on the Klein bottle stabilizer code<br>
+        <a href="https://doi.org/10.5281/zenodo.19454514">doi:10.5281/zenodo.19454514</a><br>
+        <a href="https://github.com/theoricline/klein-bottle-qec">Research repo</a>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/theoricline/kleinprobe">GitHub →</a>
+        <a href="https://github.com/theoricline/kleinprobe#readme">Documentation →</a>
+        <a href="https://github.com/theoricline/klein-bottle-qec">Klein bottle QEC →</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Syndrome animation
+const TARGET = [1,0,0,0,0,1];
+const bits = ['b0','b1','b2','b3','b4','b5'].map(id => document.getElementById(id));
+let phase = 0, noiseCount = 0, convergeStep = 0;
+
+function tick() {
+  if (phase === 0) {
+    bits.forEach(b => {
+      const v = Math.random() < 0.5 ? 1 : 0;
+      b.textContent = v; b.className = 'bit ' + (v ? 'noise' : 'off');
+    });
+    if (++noiseCount > 12) { phase = 1; convergeStep = 0; noiseCount = 0; }
+    setTimeout(tick, 110);
+  } else if (phase === 1) {
+    TARGET.forEach((v, i) => {
+      if (i >= 6 - convergeStep) {
+        bits[i].textContent = v; bits[i].className = 'bit ' + (v ? 'on' : 'off');
+      } else {
+        const r = Math.random() < 0.5 ? 1 : 0;
+        bits[i].textContent = r; bits[i].className = 'bit ' + (r ? 'noise' : 'off');
+      }
+    });
+    if (++convergeStep > 6) phase = 2;
+    setTimeout(tick, 170);
+  } else {
+    TARGET.forEach((v, i) => { bits[i].textContent = v; bits[i].className = 'bit ' + (v ? 'on' : 'off'); });
+    setTimeout(() => { phase = 0; tick(); }, 2400);
+  }
+}
+tick();
+</script>
+</body>
+</html>
