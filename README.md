@@ -1,6 +1,6 @@
 # KleinProbe
+
 **Circuit-conditioned hardware probing layer for IBM Quantum systems**
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21186260.svg)](https://doi.org/10.5281/zenodo.21186260)
 
 ```
 backend.properties()  →  KleinProbe  →  your experiment
