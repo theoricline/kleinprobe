@@ -62,8 +62,15 @@ def _inv_fraction(counts: dict, shots: int) -> float:
     return round(n / shots, 4)
 
 
-def _z_score(f: float, shots: int) -> float:
+Z0 = 50.0   # scaling constant: Z_raw = Z0 → S = 1.0
+
+def _z_raw(f: float, shots: int) -> float:
+    """Statistical significance of dominant frequency vs uniform baseline."""
     return round((f - P0) / (P0 * (1 - P0) / shots)**0.5, 1)
+
+def _health_score(z_raw: float) -> float:
+    """Normalized hardware health score S = clip(Z_raw / Z0, 0, 1)."""
+    return round(min(max(z_raw / Z0, 0.0), 1.0), 3)
 
 
 def _extract_layout(transpiled_circuit):
@@ -239,11 +246,12 @@ class KleinProbe:
         result = job.result()
         counts = result[0].data.c.get_counts()
 
-        dom = max(counts, key=counts.get)
-        f   = counts[dom] / self.shots
-        H   = _entropy(counts, self.shots)
-        inv = _inv_fraction(counts, self.shots)
-        Z   = _z_score(f, self.shots)
+        dom   = max(counts, key=counts.get)
+        f     = counts[dom] / self.shots
+        H     = _entropy(counts, self.shots)
+        inv   = _inv_fraction(counts, self.shots)
+        z_raw = _z_raw(f, self.shots)
+        S     = _health_score(z_raw)
 
         snap = Snapshot(
             timestamp        = ts,
@@ -260,7 +268,8 @@ class KleinProbe:
             match            = (dom == predicted),
             H                = H,
             inv              = inv,
-            Z                = Z,
+            Z_raw            = z_raw,
+            S                = S,
             calibration      = cal,
             counts           = counts,
         )
@@ -335,6 +344,7 @@ class KleinProbe:
             'match':   snap.match,
             'H':       snap.H,
             'inv':     snap.inv,
-            'Z':       snap.Z,
+            'Z_raw':   snap.Z_raw,
+            'S':       snap.S,
             'alert':   snap.alert,
         }

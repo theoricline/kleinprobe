@@ -99,7 +99,8 @@ class Snapshot:
     # Noise metrics
     H:    float    # Shannon entropy of syndrome distribution (bits)
     inv:  float    # Klein invariant fraction (P(bit_0 = 1))
-    Z:    float    # Z-score vs flat baseline
+    Z_raw: float   # statistical significance of dominant frequency vs uniform baseline
+    S:    float    # normalized hardware health score: clip(Z_raw / Z0, 0, 1)
 
     # Layout (circuit-conditioned calibration projection)
     calibration: Optional[CalibrationSlice] = None
@@ -126,9 +127,10 @@ class Snapshot:
             f"  Predicted: '{self.predicted_pattern}'",
             f"  Got:       '{self.dominant_pattern}'  f={self.dominant_f:.4f}  {match_str}",
             f"",
-            f"  H   = {self.H:.4f} bits   (syndrome entropy)",
-            f"  inv = {self.inv:.4f}       (Klein invariant fraction)",
-            f"  Z   = {self.Z:.1f}σ         (vs flat baseline)",
+            f"  H     = {self.H:.4f} bits   (syndrome entropy)",
+            f"  inv   = {self.inv:.4f}       (Klein invariant fraction)",
+            f"  Z_raw = {self.Z_raw:.1f}         (statistical significance vs uniform baseline)",
+            f"  S     = {self.S:.3f}         (hardware health score)",
         ]
 
         if self.delta_H is not None:
@@ -182,6 +184,7 @@ class Snapshot:
     def is_healthy(self):
         """
         Basic health check: did the probe produce the predicted pattern
-        and is the Z-score above 50σ (well above noise floor)?
+        and is the health score S > 0.5?
+        S = clip(Z_raw / 50, 0, 1); S > 0.5 corresponds to Z_raw > 25.
         """
-        return self.match and self.Z > 50
+        return self.match and self.S > 0.5
