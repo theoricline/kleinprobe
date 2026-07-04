@@ -337,7 +337,7 @@ tracker.<span class="fn">checkpoint</span>(<span class="st">"after"</span>)<br>
     <h2 style="margin-top:40px"><span class="tag">usage</span>Quick health check</h2>
     <div class="code-block">
 status = probe.<span class="fn">check</span>()<br>
-<span class="c"># {'status': 'OK', 'H': 3.37, 'inv': 0.834, 'Z': 242.0, 'alert': None}</span>
+<span class="c"># {'status': 'OK', 'H': 3.37, 'inv': 0.834, 'Z_raw': 120.7, 'S': 1.0, 'alert': None}</span>
     </div>
   </div>
 </section>
@@ -347,8 +347,7 @@ status = probe.<span class="fn">check</span>()<br>
   <div class="container">
     <h2><span class="tag">metrics</span>What KleinProbe measures</h2>
     <p>
-      Four circuit-conditioned noise metrics, each sensitive to
-      a different aspect of hardware behaviour.
+      Five circuit-conditioned metrics, each serving a distinct role.
     </p>
 
     <table class="metrics">
@@ -374,9 +373,14 @@ status = probe.<span class="fn">check</span>()<br>
           <td>Topological SNR — how strongly the hardware reproduces the predicted syndrome.</td>
         </tr>
         <tr>
-          <td>Z</td>
-          <td>Z-score vs flat baseline (1/64)</td>
-          <td>Overall circuit health. Healthy chip: Z > 100σ. Z < 50σ signals routing or calibration problems.</td>
+          <td>Z_raw</td>
+          <td>Statistical significance of dominant frequency vs uniform baseline</td>
+          <td>Raw statistical test: Z_raw = (f − p₀) / σ. Suitable for significance testing.</td>
+        </tr>
+        <tr>
+          <td>S</td>
+          <td>Normalized hardware health score — clip(Z_raw / 50, 0, 1)</td>
+          <td>Engineering health indicator. S = 1.0 fully healthy, S &lt; 0.5 degraded.</td>
         </tr>
       </tbody>
     </table>
