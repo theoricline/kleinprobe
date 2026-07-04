@@ -253,19 +253,12 @@ The probe circuit is used to extract circuit-conditioned noise signatures rather
  
 Validated on IBM Fez, Marrakesh, and Kingston across multiple sessions.
 
-@misc{roma2026kleinprobe,
-  author       = {Leonardo Roma},
-  title        = {KleinProbe: A Circuit-Conditioned Statistical Estimator for Effective Quantum Hardware Noise},
-  year         = {2026},
-  doi          = {10.5281/zenodo.21186260},
-  url          = {https://doi.org/10.5281/zenodo.21186260}
-}
+**References**
 
-**References:**
-- L. Roma, "Experimental Realization of the Klein Bottle Stabilizer Code on a Superconducting Processor", Zenodo (2026). [doi:10.5281/zenodo.19454514](https://doi.org/10.5281/zenodo.19454514)
-- Source: [github.com/theoricline/kleinprobe](https://github.com/theoricline/kleinprobe)
-- Research repo: [github.com/theoricline/klein-bottle-qec](https://github.com/theoricline/klein-bottle-qec)
-
+- L. Roma, *KleinProbe: A Circuit-Conditioned Statistical Estimator for Effective Quantum Hardware Noise*, Zenodo (2026). https://doi.org/10.5281/zenodo.21186260  
+- L. Roma, *Experimental Realization of the Klein Bottle Stabilizer Code on a Superconducting Processor*, Zenodo (2026). https://doi.org/10.5281/zenodo.19454514  
+- Source: https://github.com/theoricline/kleinprobe  
+- Research repo: https://github.com/theoricline/klein-bottle-qec  
 ---
 
 ## License
