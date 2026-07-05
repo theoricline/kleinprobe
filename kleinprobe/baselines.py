@@ -87,21 +87,23 @@ BASELINES = {
 
     "ibm_marrakesh": Baseline(
         backend    = "ibm_marrakesh",
-        H_mean     = 3.170,
-        H_std      = 0.200,
-        inv_mean   = 0.798,
+        H_mean     = 3.211,
+        H_std      = 0.172,
+        inv_mean   = 0.813,
         inv_std    = 0.036,
         f_mean     = 0.505,
         f_std      = 0.020,
-        n_sessions = 2,
-        notes      = ("2 calibration sessions: 2026-07-03 (pre-cal, H=3.369) "
-                      "and 2026-07-04 (post-cal, H=2.971). "
-                      "H varies ~0.40 bits between calibration cycles — "
-                      "wider than initial estimate. inv is the more stable "
-                      "qubit-quality signal (std=0.036). "
-                      "Seed variation experiment confirms H spread=0.891 bits "
-                      "across 5 seeds (depth range 86-132); inv spread=0.176. "
-                      "Baselines are seed=77 specific. "
+        n_sessions = 3,
+        notes      = ("3 sessions spanning multiple calibration cycles: "
+                      "2026-07-03 pre-cal (H=3.369), "
+                      "2026-07-04 post-cal 15:36 UTC (H=2.971), "
+                      "2026-07-05 post-cal 09:32 UTC (H=3.292). "
+                      "KleinProbe captures measurable H changes across sessions, "
+                      "indicating sensitivity to calibration-induced drift in "
+                      "the effective hardware state. "
+                      "inv is more stable across sessions (std=0.036). "
+                      "Seed variation (5 seeds): H_spread=0.891, inv_spread=0.176. "
+                      "Baseline is seed=77 specific. "
                       "Physical qubits: d[11]→q29 (RO=0.100), s[0]→q39 (RO=0.030)."),
     ),
 
