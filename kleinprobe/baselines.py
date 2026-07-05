@@ -109,15 +109,24 @@ BASELINES = {
 
     "ibm_kingston": Baseline(
         backend    = "ibm_kingston",
-        H_mean     = 3.80,    # estimated — update after Kingston job completes
-        H_std      = 0.20,
-        inv_mean   = 0.870,   # estimated
+        H_mean     = 1.869,
+        H_std      = 0.823,
+        inv_mean   = 0.917,
         inv_std    = 0.030,
-        f_mean     = 0.460,   # estimated
-        f_std      = 0.020,
-        n_sessions = 0,       # 0 = estimated, not yet validated
-        notes      = ("Estimated from 4×2 Paper 4 results (Z=575-601σ). "
-                      "Update after job d93t7pnu62ks7395a2i0 completes."),
+        f_mean     = 0.720,
+        f_std      = 0.100,
+        n_sessions = 2,
+        notes      = ("2 sessions showing calibration-induced regime transition: "
+                      "2026-07-04 seed=77 H=1.047 (collapsed, 2^H≈2 patterns), "
+                      "2026-07-05 seed=77 H=2.692 (mid-entropy, 2^H≈6 patterns). "
+                      "ΔH=+1.645 bits between sessions — largest observed shift. "
+                      "Demonstrates that entropy regime is not a static backend "
+                      "property but depends on calibration state and execution "
+                      "context (backend × calibration × layout × time). "
+                      "H_std=0.823 reflects regime instability, not measurement noise; "
+                      "not a meaningful drift threshold. "
+                      "Kingston requires 5+ sessions before baseline is reliable. "
+                      "Seed variation (5 seeds, July 5): H_spread=0.506, inv_spread=0.071."),
     ),
 
 }
