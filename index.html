@@ -151,6 +151,7 @@
       <a href="#how">How it works</a>
       <a href="#usage">Usage</a>
       <a href="#metrics">Metrics</a>
+      <a href="#v2">v0.2</a>
       <a href="#baselines">Baselines</a>
       <a href="#paper">Paper</a>
       <a href="https://github.com/theoricline/kleinprobe">GitHub</a>
@@ -236,6 +237,14 @@
       KleinProbe does not modify hardware, error correction schemes, or execution paths.
       It is a diagnostic layer that runs alongside quantum experiments.
     </p>
+    <p style="font-size:13px; color:var(--text-dim)">
+      <strong style="color:var(--text)">Non-goals:</strong>
+      KleinProbe does not perform transpiler optimization, error correction,
+      or autonomous execution decisions. It does not predict circuit fidelity.
+      It does not replace <code style="font-size:12px">backend.properties()</code> — it complements it.
+      The policy layer (opt-in) exposes interfaces for future decision logic;
+      no decisions are made automatically.
+    </p>
   </div>
 </section>
 
@@ -268,7 +277,7 @@ KleinProbe Snapshot — 2026-04-08T16:14:52Z<br>
 &nbsp;&nbsp;H     = <span style="color:var(--orange)">3.3686</span> bits<br>
 &nbsp;&nbsp;inv   = <span style="color:var(--orange)">0.8340</span><br>
 &nbsp;&nbsp;Z_raw = <span style="color:var(--orange)">120.7</span><br>
-&nbsp;&nbsp;S     = <span style="color:var(--green)">1.000</span>  (hardware health score)
+&nbsp;&nbsp;S     = <span style="color:var(--green)">1.000</span>  (probe signal score)
     </div>
 
     <h2 style="margin-top:40px"><span class="tag">usage</span>Drift tracking</h2>
@@ -318,7 +327,7 @@ tracker.<span class="fn">checkpoint</span>(<span class="st">"after"</span>)<br>
     </div>
 
     <p style="font-size:13px; color:var(--text-dim); margin-top:8px;">
-      Checkpoint 3 shows elevated entropy and degraded health score —
+      Checkpoint 3 shows elevated entropy and degraded probe signal —
       results from that batch should be treated with caution.
     </p>
 
@@ -367,8 +376,8 @@ status = probe.<span class="fn">check</span>()<br>
         </tr>
         <tr>
           <td>S</td>
-          <td>Normalized health score — clip(Z_raw / 50, 0, 1)</td>
-          <td>Engineering indicator. S = 1.0 fully healthy. S &lt; 0.5 signals degraded conditions.</td>
+          <td>Probe signal score — clip(Z_raw / 50, 0, 1)</td>
+          <td>Engineering indicator. S = 1.0 strong signal. S &lt; 0.5 degraded. Not interchangeable with Z_raw.</td>
         </tr>
       </tbody>
     </table>
@@ -404,10 +413,10 @@ status = probe.<span class="fn">check</span>()<br>
         </tr>
         <tr>
           <td>ibm_kingston</td>
-          <td class="pending">3.80 ± 0.20 (est.)</td>
-          <td class="pending">0.870 ± 0.030 (est.)</td>
-          <td class="pending">pending</td>
-          <td><a href="https://doi.org/10.5281/zenodo.19333513">doi:10.5281/zenodo.19333513</a></td>
+          <td>1.05 ± 0.15</td>
+          <td>0.947 ± 0.020</td>
+          <td>1</td>
+          <td><a href="https://doi.org/10.5281/zenodo.19333513">doi:10.5281/zenodo.19333513</a> — collapsed regime</td>
         </tr>
       </tbody>
     </table>
@@ -422,6 +431,84 @@ status = probe.<span class="fn">check</span>()<br>
 &nbsp;&nbsp;&nbsp;&nbsp;inv_mean  = <span class="nm">0.85</span>, inv_std = <span class="nm">0.025</span>,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;n_sessions = <span class="nm">1</span>,<br>
 ))
+    </div>
+  </div>
+</section>
+
+<!-- ── V2 ── -->
+<section id="v2">
+  <div class="container">
+    <h2><span class="tag">v0.2.0</span>Hardware state objects</h2>
+    <p>
+      Version 0.2 introduces structured state objects and a drift analysis layer
+      while keeping the core API fully backward compatible.
+      KleinProbe remains a pure observer — the new layers interpret, never decide.
+    </p>
+
+    <div class="layers" style="margin-bottom:28px">
+      <div class="layer">
+        <div class="layer-num">MEASUREMENT</div>
+        <div class="layer-name">probe.py</div>
+        <div class="layer-desc">Runs circuits, returns Snapshots. Unchanged from v0.1. Metrics computed via metrics.py.</div>
+        <span class="layer-badge badge-ibm">core</span>
+      </div>
+      <div class="layer highlight">
+        <div class="layer-num">STATE</div>
+        <div class="layer-name">state.py</div>
+        <div class="layer-desc">HardwareState, StateDelta, HardwareTrajectory. Structured θ̂_KP(L,t) objects.</div>
+        <span class="layer-badge badge-this">v0.2 new</span>
+      </div>
+      <div class="layer">
+        <div class="layer-num">INTERPRETATION</div>
+        <div class="layer-name">analyzer.py</div>
+        <div class="layer-desc">DriftAnalyzer, QueueDriftTracker. Opt-in. PolicyBase + NullPolicy in policy.py.</div>
+        <span class="layer-badge badge-you">opt-in</span>
+      </div>
+    </div>
+
+    <div class="code-block">
+<span class="c"># HardwareState — structured state vector</span><br>
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> HardwareState<br>
+<br>
+state = HardwareState.<span class="fn">from_snapshot</span>(snap)<br>
+state.vector            <span class="c"># np.array([H, inv, f, Z_raw, S])</span><br>
+state.regime            <span class="c"># 'high_entropy' | 'mid_entropy' | 'collapsed'</span><br>
+state.effective_patterns <span class="c"># 2^H — ~2 on Kingston, ~23 on Fez</span><br>
+<br>
+<span class="c"># StateDelta — first-class diff object</span><br>
+delta = state2 - state1<br>
+delta.drift_score       <span class="c"># 0-1, >0.5 = significant</span><br>
+delta.norm_l2           <span class="c"># L2 distance in (H, inv, f) space</span><br>
+delta.dominant_shift    <span class="c"># which component changed most</span><br>
+delta.summary()         <span class="c"># human-readable string</span><br>
+<br>
+<span class="c"># HardwareTrajectory — time series of states</span><br>
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> HardwareTrajectory<br>
+<br>
+traj = <span class="fn">HardwareTrajectory</span>(label=<span class="st">"overnight_run"</span>)<br>
+traj.<span class="fn">add</span>(HardwareState.<span class="fn">from_snapshot</span>(probe.<span class="fn">run</span>()))<br>
+<span class="fn">run_experiment</span>()<br>
+traj.<span class="fn">add</span>(HardwareState.<span class="fn">from_snapshot</span>(probe.<span class="fn">run</span>()))<br>
+<br>
+traj.stability          <span class="c"># 0-1 (1.0 = no drift)</span><br>
+traj.had_regime_change  <span class="c"># bool</span><br>
+traj.<span class="fn">summary</span>()
+    </div>
+
+    <div class="code-block">
+<span class="c"># QueueDriftTracker — θ₁/θ₂/Δθ for queued jobs (opt-in)</span><br>
+<span class="kw">from</span> kleinprobe.analyzer <span class="kw">import</span> QueueDriftTracker<br>
+<br>
+tracker = <span class="fn">QueueDriftTracker</span>(probe)<br>
+tracker.<span class="fn">record_submission</span>()     <span class="c"># probe before submitting → θ₁</span><br>
+job = sampler.<span class="fn">run</span>(my_circuits)  <span class="c"># submit job</span><br>
+job.<span class="fn">result</span>()                    <span class="c"># wait</span><br>
+result = tracker.<span class="fn">record_execution</span>()  <span class="c"># probe after → θ₂, Δθ</span><br>
+<br>
+result.was_stable        <span class="c"># bool</span><br>
+result.delta.drift_score <span class="c"># how much hardware changed in queue</span><br>
+result.recommendation    <span class="c"># 'proceed' | 'caution' | 'pause'</span><br>
+result.<span class="fn">summary</span>()
     </div>
   </div>
 </section>
