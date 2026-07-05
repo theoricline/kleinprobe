@@ -103,17 +103,18 @@ BASELINES = {
 
     "ibm_kingston": Baseline(
         backend    = "ibm_kingston",
-        H_mean     = 3.80,    # estimated — update after Kingston job completes
-        H_std      = 0.20,
-        inv_mean   = 0.870,   # estimated
-        inv_std    = 0.030,
-        f_mean     = 0.460,   # estimated
-        f_std      = 0.020,
-        n_sessions = 0,       # 0 = estimated, not yet validated
-        notes      = ("Estimated from 4×2 Paper 4 results (Z=575-601σ). "
-                      "Update after job d93t7pnu62ks7395a2i0 completes."),
+        H_mean     = 1.05,    
+        H_std      = 0.00,
+        inv_mean   = 0.947,   
+        inv_std    = 0.00,
+        f_mean     = 0.817,   
+        f_std      = 0.000,
+        n_sessions = a,       
+        notes      = ("Experimental baseline from first KleinProbe session "
+                      "(seed=77, δ=0, 4096 shots). "
+                      "Single-session baseline; update standard deviations "
+                      "after repeated calibration sessions."),
     ),
-
 }
 
 
