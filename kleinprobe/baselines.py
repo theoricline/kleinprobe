@@ -80,28 +80,34 @@ BASELINES = {
         f_mean     = 0.470,
         f_std      = 0.015,
         n_sessions = 6,
-        notes      = ("6 calibration sessions, Papers 1-6. "
-                      "Higher entropy than Marrakesh — noisier qubit region. "
-                      "Depth 112 for 3×2 on Fez."),
+        notes      = ("6 sessions from Papers 1-6 (H=4.50±0.15). "
+                      "Session 7 (2026-07-05, post-recal 13:26 UTC): H=2.878, inv=0.898. "
+                      "Session 7 reflects a different calibration state — "
+                      "H dropped 1.6 bits while inv changed by only 0.002, "
+                      "consistent with H and I probing distinct aspects of "
+                      "the effective hardware state. "
+                      "Baseline (n=6) reflects pre-July-2026 calibration era. "
+                      "Update after additional post-recalibration sessions. "
+                      "Seed variation (5 seeds): H_spread=0.540, inv_spread=0.051."),
     ),
 
     "ibm_marrakesh": Baseline(
         backend    = "ibm_marrakesh",
-        H_mean     = 3.211,
-        H_std      = 0.172,
-        inv_mean   = 0.813,
-        inv_std    = 0.036,
-        f_mean     = 0.505,
-        f_std      = 0.020,
-        n_sessions = 3,
-        notes      = ("3 sessions spanning multiple calibration cycles: "
-                      "2026-07-03 pre-cal (H=3.369), "
-                      "2026-07-04 post-cal 15:36 UTC (H=2.971), "
-                      "2026-07-05 post-cal 09:32 UTC (H=3.292). "
-                      "KleinProbe captures measurable H changes across sessions, "
-                      "indicating sensitivity to calibration-induced drift in "
-                      "the effective hardware state. "
-                      "inv is more stable across sessions (std=0.036). "
+        H_mean     = 3.296,
+        H_std      = 0.210,
+        inv_mean   = 0.809,
+        inv_std    = 0.033,
+        f_mean     = 0.494,
+        f_std      = 0.035,
+        n_sessions = 4,
+        notes      = ("4 sessions spanning 4 calibration cycles: "
+                      "S1 2026-07-03 (H=3.369), S2 2026-07-04 post-15:36 (H=2.971), "
+                      "S3 2026-07-05 post-09:32 (H=3.292), S4 2026-07-05 post-13:03 (H=3.553). "
+                      "H oscillates 2.97–3.55 with no stable trend. "
+                      "Session-to-session variability is substantial; "
+                      "approximately 8-10 calibration cycles planned before "
+                      "treating baseline as operationally stable. "
+                      "inv more stable than H across sessions (std=0.033 vs 0.210). "
                       "Seed variation (5 seeds): H_spread=0.891, inv_spread=0.176. "
                       "Baseline is seed=77 specific. "
                       "Physical qubits: d[11]→q29 (RO=0.100), s[0]→q39 (RO=0.030)."),
