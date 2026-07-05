@@ -89,29 +89,71 @@ class HardwareState:
     job_id:    str
     delta:     int   # δ value used (0, 1, or 2)
 
-    # Note: layout_hash (physical qubit fingerprint) is not yet implemented.
-    # It will be added after seed variation sensitivity experiments confirm
-    # whether seed-dependent qubit placement must be part of state identity.
-    # See: github.com/theoricline/kleinprobe, sensitivity experiment.
+    # layout_hash: identifies the family of circuit embeddings.
+    # Two HardwareState objects are only directly comparable
+    # (without H_norm normalisation) if their layout_hash matches.
+    #
+    # Empirical justification: seed variation experiment (2026-07-05)
+    # showed H spread = 0.891 bits across 5 seeds on ibm_marrakesh,
+    # with r(depth, H) = 0.75. Same seed = same depth + same qubits.
+    # Different seed = different layout family, not directly comparable.
+    #
+    # Format: "{backend}_{seed}_{transpiler_version}" where
+    # transpiler_version stabilises against Qiskit version changes.
+    # Use HardwareState.make_layout_hash() to construct consistently.
+    layout_hash: Optional[str] = None
 
     # Source snapshot (kept for traceability)
     _snapshot: Optional[Snapshot] = field(default=None, repr=False)
 
+    @staticmethod
+    def make_layout_hash(backend: str, seed: int,
+                         transpiler_version: Optional[str] = None) -> str:
+        """
+        Construct a deterministic layout hash.
+
+        Format: "{backend}_{seed}_{transpiler_version}"
+
+        Including transpiler_version guards against layout changes
+        across Qiskit releases even at the same seed.
+        If transpiler_version is None, it is omitted (backward compat).
+
+        Usage:
+            layout_hash = HardwareState.make_layout_hash(
+                backend="ibm_marrakesh", seed=77)
+            # → "ibm_marrakesh_77"
+
+            # With version pinning (recommended):
+            import qiskit
+            layout_hash = HardwareState.make_layout_hash(
+                backend="ibm_marrakesh", seed=77,
+                transpiler_version=qiskit.__version__)
+            # → "ibm_marrakesh_77_1.4.2"
+        """
+        parts = [backend, str(seed)]
+        if transpiler_version:
+            parts.append(transpiler_version)
+        return "_".join(parts)
+
     @classmethod
-    def from_snapshot(cls, snap: Snapshot) -> 'HardwareState':
+    def from_snapshot(cls, snap: Snapshot,
+                      transpiler_version: Optional[str] = None) -> 'HardwareState':
         """Construct a HardwareState from a raw Snapshot."""
+        layout_hash = cls.make_layout_hash(
+            snap.backend, snap.seed, transpiler_version)
         return cls(
-            H         = snap.H,
-            inv       = snap.inv,
-            f         = snap.dominant_f,
-            Z_raw     = snap.Z_raw,
-            S         = snap.S,
-            backend   = snap.backend,
-            seed      = snap.seed,
-            timestamp = snap.timestamp,
-            job_id    = snap.job_id,
-            delta     = snap.delta,
-            _snapshot = snap,
+            H            = snap.H,
+            inv          = snap.inv,
+            f            = snap.dominant_f,
+            Z_raw        = snap.Z_raw,
+            S            = snap.S,
+            backend      = snap.backend,
+            seed         = snap.seed,
+            timestamp    = snap.timestamp,
+            job_id       = snap.job_id,
+            delta        = snap.delta,
+            layout_hash  = layout_hash,
+            _snapshot    = snap,
         )
 
     @property
@@ -193,11 +235,13 @@ class StateDelta:
     dt_seconds: Optional[float]   # time between observations
 
     # Identity metadata
-    backend:    str
-    seed_from:  int
-    seed_to:    int
-    same_seed:  bool   # False = cross-seed comparison
-    same_backend: bool
+    backend:       str
+    seed_from:     int
+    seed_to:       int
+    same_seed:     bool    # False = cross-seed comparison
+    same_backend:  bool
+    layout_hash_from: Optional[str] = None
+    layout_hash_to:   Optional[str] = None
 
     @classmethod
     def compute(cls, state2: HardwareState,
@@ -211,17 +255,19 @@ class StateDelta:
             dt = None
 
         return cls(
-            dH          = round(state2.H    - state1.H,    4),
-            dinv        = round(state2.inv  - state1.inv,  4),
-            df          = round(state2.f    - state1.f,    4),
-            dZ          = round(state2.Z_raw - state1.Z_raw, 1),
-            dS          = round(state2.S    - state1.S,    3),
-            dt_seconds  = round(dt, 1) if dt is not None else None,
-            backend     = state2.backend,
-            seed_from   = state1.seed,
-            seed_to     = state2.seed,
-            same_seed   = state1.seed == state2.seed,
-            same_backend= state1.backend == state2.backend,
+            dH             = round(state2.H    - state1.H,    4),
+            dinv           = round(state2.inv  - state1.inv,  4),
+            df             = round(state2.f    - state1.f,    4),
+            dZ             = round(state2.Z_raw - state1.Z_raw, 1),
+            dS             = round(state2.S    - state1.S,    3),
+            dt_seconds     = round(dt, 1) if dt is not None else None,
+            backend        = state2.backend,
+            seed_from      = state1.seed,
+            seed_to        = state2.seed,
+            same_seed      = state1.seed == state2.seed,
+            same_backend   = state1.backend == state2.backend,
+            layout_hash_from = state1.layout_hash,
+            layout_hash_to   = state2.layout_hash,
         )
 
     @property
@@ -298,10 +344,18 @@ class StateDelta:
     @property
     def is_valid_comparison(self) -> bool:
         """
-        True if the delta is between same-seed, same-backend states.
-        Cross-seed or cross-backend deltas may reflect layout changes,
-        not temporal drift.
+        True if the delta is between states with matching layout_hash.
+
+        A valid comparison requires the same backend, seed, and
+        transpiler version (encoded in layout_hash). Cross-seed or
+        cross-backend deltas reflect layout differences, not purely
+        temporal drift, and require H_norm normalisation.
+
+        If layout_hash is None on either state, falls back to
+        same_seed and same_backend check.
         """
+        if self.layout_hash_from and self.layout_hash_to:
+            return self.layout_hash_from == self.layout_hash_to
         return self.same_seed and self.same_backend
 
     def summary(self) -> str:

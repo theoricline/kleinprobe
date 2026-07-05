@@ -87,34 +87,37 @@ BASELINES = {
 
     "ibm_marrakesh": Baseline(
         backend    = "ibm_marrakesh",
-        H_mean     = 3.37,
-        H_std      = 0.10,
-        inv_mean   = 0.834,
-        inv_std    = 0.020,
-        f_mean     = 0.484,
-        f_std      = 0.015,
-        n_sessions = 1,
-        notes      = ("Single session, job d93t5jcql68s73c8qg30. "
-                      "Circuit placed on physical qubits 18-71. "
-                      "Notable: antipodal edge d[11]→q29, RO=0.100. "
-                      "Klein invariant s[0]→q39, RO=0.030. "
-                      "Depth 87-88 for 3×2 on Marrakesh."),
+        H_mean     = 3.170,
+        H_std      = 0.200,
+        inv_mean   = 0.798,
+        inv_std    = 0.036,
+        f_mean     = 0.505,
+        f_std      = 0.020,
+        n_sessions = 2,
+        notes      = ("2 calibration sessions: 2026-07-03 (pre-cal, H=3.369) "
+                      "and 2026-07-04 (post-cal, H=2.971). "
+                      "H varies ~0.40 bits between calibration cycles — "
+                      "wider than initial estimate. inv is the more stable "
+                      "qubit-quality signal (std=0.036). "
+                      "Seed variation experiment confirms H spread=0.891 bits "
+                      "across 5 seeds (depth range 86-132); inv spread=0.176. "
+                      "Baselines are seed=77 specific. "
+                      "Physical qubits: d[11]→q29 (RO=0.100), s[0]→q39 (RO=0.030)."),
     ),
 
     "ibm_kingston": Baseline(
         backend    = "ibm_kingston",
-        H_mean     = 1.05,    
-        H_std      = 0.00,
-        inv_mean   = 0.947,   
-        inv_std    = 0.00,
-        f_mean     = 0.817,   
-        f_std      = 0.000,
-        n_sessions = a,       
-        notes      = ("Experimental baseline from first KleinProbe session "
-                      "(seed=77, δ=0, 4096 shots). "
-                      "Single-session baseline; update standard deviations "
-                      "after repeated calibration sessions."),
+        H_mean     = 3.80,    # estimated — update after Kingston job completes
+        H_std      = 0.20,
+        inv_mean   = 0.870,   # estimated
+        inv_std    = 0.030,
+        f_mean     = 0.460,   # estimated
+        f_std      = 0.020,
+        n_sessions = 0,       # 0 = estimated, not yet validated
+        notes      = ("Estimated from 4×2 Paper 4 results (Z=575-601σ). "
+                      "Update after job d93t7pnu62ks7395a2i0 completes."),
     ),
+
 }
 
 
