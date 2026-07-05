@@ -56,16 +56,24 @@ DRIFT_SIGNIFICANCE = 0.15   # ΔH > 0.15 bits or Δinv > 0.05 = significant
 @dataclass
 class HardwareState:
     """
-    Structured estimate of the circuit-conditioned hardware state Θ(L,t).
+    Structured estimate of observable statistics induced by
+    the latent circuit-conditioned hardware state Θ(L,t).
+
+    HardwareState represents θ̂_KP(L,t) — the KleinProbe estimator
+    defined in doi:10.5281/zenodo.21186260, Section 3.
+    It does NOT claim to reconstruct Θ(L,t) directly; it estimates
+    observable statistics (H, inv, f, Z_raw, S) that are induced
+    by Θ(L,t) through syndrome measurement.
+
+    Notation mapping (paper ↔ code):
+        θ̂_KP(L,t)  ↔  HardwareState.vector  (ℝ⁵)
+        (H, I, f)   ↔  HardwareState.primary_vector  (ℝ³)
+        Snapshot    ↔  raw measurement output (pre-structuring)
 
     Wraps a Snapshot and provides:
     - A normalized state vector suitable for arithmetic and comparison
     - Regime classification (high_entropy / mid_entropy / collapsed)
     - Identity metadata (backend, seed, timestamp) for provenance
-
-    HardwareState is an estimate of observable statistics induced by
-    Θ(L,t); it does not claim to reconstruct Θ directly.
-    See: doi:10.5281/zenodo.21186260
     """
     # Core state vector components
     H:     float   # syndrome entropy (bits)
@@ -81,10 +89,10 @@ class HardwareState:
     job_id:    str
     delta:     int   # δ value used (0, 1, or 2)
 
-    # Optional: layout identity (populated after sensitivity experiment)
-    # If seed variation shows H varies >0.3 bits across seeds,
-    # layout must be included in state identity for valid comparisons.
-    layout_hash: Optional[str] = None
+    # Note: layout_hash (physical qubit fingerprint) is not yet implemented.
+    # It will be added after seed variation sensitivity experiments confirm
+    # whether seed-dependent qubit placement must be part of state identity.
+    # See: github.com/theoricline/kleinprobe, sensitivity experiment.
 
     # Source snapshot (kept for traceability)
     _snapshot: Optional[Snapshot] = field(default=None, repr=False)
