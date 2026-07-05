@@ -275,7 +275,7 @@ KleinProbe Snapshot — 2026-04-08T16:14:52Z<br>
 &nbsp;&nbsp;Got:       <span style="color:var(--blue)">'100001'</span>  f=0.4836  <span style="color:var(--green)">✓ MATCH</span><br>
 <br>
 &nbsp;&nbsp;H     = <span style="color:var(--orange)">3.3686</span> bits<br>
-&nbsp;&nbsp;inv   = <span style="color:var(--orange)">0.8340</span><br>
+&nbsp;&nbsp;inv   = <span style="color:var(--orange)">0.8867</span><br>
 &nbsp;&nbsp;Z_raw = <span style="color:var(--orange)">120.7</span><br>
 &nbsp;&nbsp;S     = <span style="color:var(--green)">1.000</span>  (probe signal score)
     </div>
@@ -334,7 +334,7 @@ tracker.<span class="fn">checkpoint</span>(<span class="st">"after"</span>)<br>
     <h2 style="margin-top:40px"><span class="tag">usage</span>Quick health check</h2>
     <div class="code-block">
 status = probe.<span class="fn">check</span>()<br>
-<span class="c"># {'status': 'OK', 'H': 3.37, 'inv': 0.834, 'Z_raw': 120.7, 'S': 1.0, 'alert': None}</span>
+<span class="c"># {'status': 'OK', 'H': 3.29, 'inv': 0.844, 'Z_raw': 162.3, 'S': 1.0, 'alert': None}</span>
     </div>
   </div>
 </section>
@@ -400,23 +400,23 @@ status = probe.<span class="fn">check</span>()<br>
 
     <table class="baselines">
       <thead>
-        <tr><th>backend</th><th>H (mean ± σ)</th><th>inv (mean ± σ)</th><th>sessions</th><th>source</th></tr>
+        <tr><th>backend</th><th>H (mean ± σ)</th><th>inv (mean ± σ)</th><th>sessions</th><th>notes</th></tr>
       </thead>
       <tbody>
         <tr>
           <td>ibm_fez</td><td>4.50 ± 0.15</td><td>0.900 ± 0.020</td><td>6</td>
-          <td><a href="https://doi.org/10.5281/zenodo.19454514">doi:10.5281/zenodo.19454514</a></td>
+          <td>Papers 1-6 baseline. S7 (2026-07-05): H=2.878 — different calibration state.</td>
         </tr>
         <tr>
-          <td>ibm_marrakesh</td><td>3.37 ± 0.10</td><td>0.834 ± 0.020</td><td>1</td>
-          <td>Attestation experiments</td>
+          <td>ibm_marrakesh</td><td>3.30 ± 0.21</td><td>0.809 ± 0.033</td><td>4</td>
+          <td>H range 2.97–3.55 across sessions. ~8-10 sessions for stable baseline.</td>
         </tr>
         <tr>
           <td>ibm_kingston</td>
-          <td>1.05 ± 0.15</td>
-          <td>0.947 ± 0.020</td>
-          <td>1</td>
-          <td><a href="https://doi.org/10.5281/zenodo.19333513">doi:10.5281/zenodo.19333513</a> — collapsed regime</td>
+          <td>2.69 ± 0.00</td>
+          <td>0.885 ± 0.002</td>
+          <td>2*</td>
+          <td>*Post-transition only. S1 was transient collapsed (H=1.05). Regime is per-session.</td>
         </tr>
       </tbody>
     </table>
