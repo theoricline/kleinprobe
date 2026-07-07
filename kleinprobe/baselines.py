@@ -99,40 +99,41 @@ BASELINES = {
         inv_std    = 0.033,
         f_mean     = 0.494,
         f_std      = 0.035,
-        n_sessions = 4,
-        notes      = ("4 sessions spanning 4 calibration cycles: "
+        n_sessions = 6,
+        notes      = ("6 sessions spanning multiple calibration cycles: "
                       "S1 2026-07-03 (H=3.369), S2 2026-07-04 post-15:36 (H=2.971), "
-                      "S3 2026-07-05 post-09:32 (H=3.292), S4 2026-07-05 post-13:03 (H=3.553). "
-                      "H oscillates 2.97–3.55 with no stable trend. "
+                      "S3 2026-07-05 post-09:32 (H=3.292), S4 2026-07-05 post-13:03 (H=3.553), "
+                      "S5 2026-07-05 post-15:46 recovery (H=2.851), "
+                      "S6 2026-07-07 post-PAUSE (H=3.621, inv=0.903 highest observed). "
+                      "H oscillates 2.85–3.62 with no stable trend. "
                       "Session-to-session variability is substantial; "
                       "approximately 8-10 calibration cycles planned before "
                       "treating baseline as operationally stable. "
                       "inv more stable than H across sessions (std=0.033 vs 0.210). "
                       "Seed variation (5 seeds): H_spread=0.891, inv_spread=0.176. "
                       "Baseline is seed=77 specific. "
-                      "Physical qubits: d[11]→q29 (RO=0.100), s[0]→q39 (RO=0.030)."),
+                      "Physical qubits: d[11]→q29 (RO=0.100), s[0]→q39 (RO=0.030). "
+                      "Anomalous event: 2026-07-05 post-14:44, inv=0.474, "
+                      "P(meas0|prep1)=0.097 on q29 confirmed via IBM Platform."),
     ),
 
     "ibm_kingston": Baseline(
         backend    = "ibm_kingston",
-        H_mean     = 1.869,
-        H_std      = 0.823,
-        inv_mean   = 0.917,
-        inv_std    = 0.030,
-        f_mean     = 0.720,
-        f_std      = 0.100,
-        n_sessions = 2,
-        notes      = ("2 sessions showing calibration-induced regime transition: "
-                      "2026-07-04 seed=77 H=1.047 (collapsed, 2^H≈2 patterns), "
-                      "2026-07-05 seed=77 H=2.692 (mid-entropy, 2^H≈6 patterns). "
-                      "ΔH=+1.645 bits between sessions — largest observed shift. "
-                      "Demonstrates that entropy regime is not a static backend "
-                      "property but depends on calibration state and execution "
-                      "context (backend × calibration × layout × time). "
-                      "H_std=0.823 reflects regime instability, not measurement noise; "
-                      "not a meaningful drift threshold. "
-                      "Kingston requires 5+ sessions before baseline is reliable. "
-                      "Seed variation (5 seeds, July 5): H_spread=0.506, inv_spread=0.071."),
+        H_mean     = 2.750,
+        H_std      = 0.062,
+        inv_mean   = 0.883,
+        inv_std    = 0.003,
+        f_mean     = 0.630,
+        f_std      = 0.020,
+        n_sessions = 4,
+        notes      = ("4 post-transition sessions (S2-S5, excluding collapsed S1). "
+                      "S1 (2026-07-04): H=1.047 collapsed regime — transient anomaly. "
+                      "S2-S4 (2026-07-05, Δt_cal<1h): H=2.692-2.775. "
+                      "S5 (2026-07-07, Δt_cal=10.55h): H=2.840 — first HIGH Δt_cal session. "
+                      "Tentative: H increases slightly with Δt_cal on Kingston. "
+                      "inv is highly stable across all Δt_cal values (std=0.003). "
+                      "Seed variation (5 seeds, July 5): H_spread=0.506, inv_spread=0.071. "
+                      "Regime classification must be verified per session."),
     ),
 
 }
