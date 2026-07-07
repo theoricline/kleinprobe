@@ -1,6 +1,6 @@
 # KleinProbe
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21186260.svg)](https://doi.org/10.5281/zenodo.21186260)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21186259.svg)](https://doi.org/10.5281/zenodo.21186259)
 
 **Circuit-conditioned hardware probing layer for IBM Quantum systems**
 
@@ -246,7 +246,7 @@ print(result.summary())
 | `Z_raw` | Statistical significance vs uniform baseline | `Z_raw = (f − p₀) / σ` — suitable for hypothesis testing |
 | `S` | Probe signal score — `clip(Z_raw / 50, 0, 1)` | Engineering indicator: S=1.0 strong signal, S<0.5 degraded |
 
-**Note:** `Z_raw` and `S` serve distinct roles and are not interchangeable. `Z_raw` is a statistical object; `S` is an engineering indicator. See [doi:10.5281/zenodo.21186260](https://doi.org/10.5281/zenodo.21186260) for formal definitions.
+**Note:** `Z_raw` and `S` serve distinct roles and are not interchangeable. `Z_raw` is a statistical object; `S` is an engineering indicator. See [doi:10.5281/zenodo.21186259](https://doi.org/10.5281/zenodo.21186259) for formal definitions.
 
 ---
 
@@ -387,7 +387,7 @@ KleinProbe is based on a structured stabilizer probe circuit derived from a non-
 
 Validated on IBM Fez, Marrakesh, and Kingston (Heron r2 processors) across multiple calibration sessions.
 
-**Formalism paper:** L. Roma, "KleinProbe: A Circuit-Conditioned Statistical Estimator for Effective Quantum Hardware Noise", Zenodo (2026). [doi:10.5281/zenodo.21186260](https://doi.org/10.5281/zenodo.21186260)
+**Formalism paper:** L. Roma, "KleinProbe: A Circuit-Conditioned Statistical Estimator for Effective Quantum Hardware Noise", Zenodo (2026). [doi:10.5281/zenodo.21186259](https://doi.org/10.5281/zenodo.21186259)
 
 **Research:** L. Roma, "Experimental Realization of the Klein Bottle Stabilizer Code on a Superconducting Processor", Zenodo (2026). [doi:10.5281/zenodo.19454514](https://doi.org/10.5281/zenodo.19454514)
 
