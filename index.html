@@ -151,7 +151,7 @@
       <a href="#how">How it works</a>
       <a href="#usage">Usage</a>
       <a href="#metrics">Metrics</a>
-      <a href="#v2">v0.2</a>
+      <a href="#v2">v0.3</a>
       <a href="#baselines">Baselines</a>
       <a href="#paper">Paper</a>
       <a href="https://github.com/theoricline/kleinprobe">GitHub</a>
@@ -438,7 +438,39 @@ status = probe.<span class="fn">check</span>()<br>
 <!-- ── V2 ── -->
 <section id="v2">
   <div class="container">
-    <h2><span class="tag">v0.2.0</span>Hardware state objects</h2>
+    <h2><span class="tag">v0.3.0</span>Tiled spatial probe</h2>
+    <p>
+      Run multiple probe circuits simultaneously across non-overlapping chip regions.
+      Returns per-region H and inv — a sampled spatial execution-state field.
+      Hardware validated on ibm_fez: H spread = 0.93 bits across 3 regions.
+    </p>
+
+    <div class="code-block">
+<span class="c"># 3-tile spatial probe — ibm_fez hardware validated 2026-07-07</span><br>
+<span class="kw">from</span> kleinprobe.tiling <span class="kw">import</span> TiledSnapshot, SpatialHardwareState<br>
+<br>
+tsnap = probe.<span class="fn">run_tiled</span>(n_tiles=<span class="nm">3</span>, seeds=[<span class="nm">39</span>, <span class="nm">2</span>, <span class="nm">175</span>])<br>
+<br>
+<span class="kw">if</span> tsnap.is_valid:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">print</span>(tsnap.<span class="fn">report</span>())<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="c"># Tile 0: H=3.78  inv=0.820  ✓  (central region)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="c"># Tile 1: H=4.70  inv=0.729  ✓  (upper-left)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="c"># Tile 2: H=4.71  inv=0.728  ✓  (middle)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="c"># Spatial variance: 0.532</span><br>
+<br>
+spatial = SpatialHardwareState.<span class="fn">from_tiled</span>(tsnap)<br>
+spatial.H_spread         <span class="c"># 0.9335 bits — significant spatial variation</span><br>
+spatial.inv_spread       <span class="c"># 0.0918 — qubit quality varies by region</span><br>
+spatial.spatial_variance <span class="c"># scalar uniformity measure</span>
+    </div>
+
+    <p style="font-size:13px; color:var(--text-dim)">
+      <strong style="color:var(--text)">Runtime:</strong>
+      ~3s single probe (δ=0) · ~4s 3-tile probe · zero additional queue time (PUB mode).
+      The previous ~7s figure included the full δ-family (4 PUBs).
+    </p>
+
+    <h2 style="margin-top:40px"><span class="tag">v0.2.0</span>Hardware state objects</h2>
     <p>
       Version 0.2 introduces structured state objects and a drift analysis layer
       while keeping the core API fully backward compatible.
