@@ -39,7 +39,7 @@ from .snapshot import Snapshot
 # ── Regime thresholds ─────────────────────────────────────────────────────
 # Based on empirical validation across three IBM Heron r2 processors.
 # Regime is a property of the probe-response space, not hardware quality.
-# See: doi:10.5281/zenodo.21186260, Section 4.
+# See: doi:10.5281/zenodo.21186259, Section 4.
 
 REGIME_THRESHOLDS = {
     'collapsed':    1.5,   # H < 1.5 → near-deterministic syndrome
@@ -60,7 +60,7 @@ class HardwareState:
     the latent circuit-conditioned hardware state Θ(L,t).
 
     HardwareState represents θ̂_KP(L,t) — the KleinProbe estimator
-    defined in doi:10.5281/zenodo.21186260, Section 3.
+    defined in doi:10.5281/zenodo.21186259, Section 3.
     It does NOT claim to reconstruct Θ(L,t) directly; it estimates
     observable statistics (H, inv, f, Z_raw, S) that are induced
     by Θ(L,t) through syndrome measurement.
@@ -554,3 +554,125 @@ class HardwareTrajectory:
     def __repr__(self):
         return (f"HardwareTrajectory(n={self.n}, "
                 f"stability={self.stability})")
+
+
+# ── Layout Match Score ────────────────────────────────────────────────────
+
+from dataclasses import dataclass as _dataclass
+from typing import Optional as _Optional
+
+@_dataclass
+class LayoutMatchResult:
+    """
+    Layout Match Score (LMS) between a probe circuit and a target circuit.
+
+    Measures spatial alignment between the probe's physical qubit region
+    and the target circuit's physical qubit region.
+
+    Two complementary scores:
+      lms_probe:  fraction of probe qubits shared with target
+                  "How relevant is this probe to the target circuit?"
+      lms_target: fraction of target qubits covered by probe
+                  "What fraction of the target circuit is characterised?"
+
+    Formula:
+      lms_probe  = |Q_probe ∩ Q_target| / |Q_probe|
+      lms_target = |Q_probe ∩ Q_target| / |Q_target|
+
+    Paper: doi:10.5281/zenodo.21186259
+    """
+    shared_qubits:  frozenset
+    probe_qubits:   frozenset
+    target_qubits:  frozenset
+
+    @property
+    def n_shared(self) -> int:
+        return len(self.shared_qubits)
+
+    @property
+    def lms_probe(self) -> float:
+        """Probe relevance: fraction of probe qubits in target region."""
+        if not self.probe_qubits:
+            return 0.0
+        return round(len(self.shared_qubits) / len(self.probe_qubits), 3)
+
+    @property
+    def lms_target(self) -> float:
+        """Target coverage: fraction of target qubits covered by probe."""
+        if not self.target_qubits:
+            return 0.0
+        return round(len(self.shared_qubits) / len(self.target_qubits), 3)
+
+    @property
+    def relevance(self) -> str:
+        """Qualitative probe relevance label based on lms_probe."""
+        if self.lms_probe >= 0.80:  return "HIGH"
+        elif self.lms_probe >= 0.50: return "MODERATE"
+        elif self.lms_probe >= 0.20: return "LOW"
+        else:                        return "NEGLIGIBLE"
+
+    def report(self) -> str:
+        return (
+            f"Layout Match Score\n"
+            f"  Probe relevance:   {self.lms_probe:.3f}  "
+            f"({self.n_shared}/{len(self.probe_qubits)} probe qubits shared)  "
+            f"[{self.relevance}]\n"
+            f"  Target coverage:   {self.lms_target:.3f}  "
+            f"({self.n_shared}/{len(self.target_qubits)} target qubits covered)\n"
+            f"  Shared qubits:     {sorted(self.shared_qubits)}"
+        )
+
+    def __repr__(self):
+        return (f"LayoutMatchResult(lms_probe={self.lms_probe}, "
+                f"lms_target={self.lms_target}, "
+                f"relevance='{self.relevance}')")
+
+
+def layout_match_score(probe_isa, target_isa) -> LayoutMatchResult:
+    """
+    Compute the Layout Match Score between a transpiled probe circuit
+    and a transpiled target circuit.
+
+    Both circuits must be transpiled to the same backend.
+
+    Args:
+        probe_isa:  transpiled KleinProbe circuit (from probe.run() internals
+                    or transpiled manually with same backend)
+        target_isa: user's transpiled target circuit
+
+    Returns:
+        LayoutMatchResult with lms_probe, lms_target, shared_qubits
+
+    Example:
+        from kleinprobe.state import layout_match_score
+
+        probe_isa  = pm.run(probe_circuit)
+        target_isa = pm.run(my_circuit)
+
+        match = layout_match_score(probe_isa, target_isa)
+        print(match.report())
+        # Layout Match Score
+        #   Probe relevance:   0.833  (15/18 probe qubits shared)  [HIGH]
+        #   Target coverage:   0.300  (15/50 target qubits covered)
+        #   Shared qubits:     [87, 88, 89, 90, 91, ...]
+    """
+    def get_qubits(isa):
+        try:
+            return frozenset(isa.layout.initial_index_layout(filter_ancillas=True))
+        except:
+            try:
+                vbits = isa.layout.initial_layout.get_virtual_bits()
+                return frozenset(p for q,p in vbits.items()
+                                if hasattr(q,'_register'))
+            except:
+                return frozenset()
+
+    probe_q  = get_qubits(probe_isa)
+    target_q = get_qubits(target_isa)
+    shared   = probe_q & target_q
+
+    return LayoutMatchResult(
+        shared_qubits = shared,
+        probe_qubits  = probe_q,
+        target_qubits = target_q,
+    )

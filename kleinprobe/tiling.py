@@ -41,7 +41,7 @@ Reference:
     Processor" — demonstrated non-overlapping multi-code placement
     on IBM Fez, motivating this extension.
 
-Paper: doi:10.5281/zenodo.21186260 (KleinProbe formalism)
+Paper: doi:10.5281/zenodo.21186259 (KleinProbe formalism)
 """
 
 from __future__ import annotations
@@ -231,7 +231,63 @@ class TiledSnapshot:
         """Tile indices where dominant pattern did not match prediction."""
         return [i for i, s in enumerate(self.tiles) if not s.match]
 
-    def spatial_map(self) -> dict:
+    def tile_match_scores(self, target_isa) -> list:
+        """
+        Compute Layout Match Score for each tile against a target circuit.
+
+        Returns list of dicts with lms_probe, lms_target, and tile index,
+        sorted by lms_probe descending (most relevant tile first).
+
+        Example:
+            scores = tsnap.tile_match_scores(my_transpiled_circuit)
+            best   = scores[0]
+            print(f"Best tile: {best['tile']}  LMS={best['lms_probe']:.3f}")
+            print(f"  H={self.tiles[best['tile']].H:.4f}  "
+                  f"inv={self.tiles[best['tile']].inv:.4f}")
+        """
+        from .state import layout_match_score
+
+        results = []
+        for i, meta in enumerate(self.metadata):
+            # Reconstruct probe qubit set from metadata
+            probe_q = frozenset(meta.all_physical_qubits)
+
+            # Get target qubits
+            try:
+                target_q = frozenset(
+                    target_isa.layout.initial_index_layout(filter_ancillas=True))
+            except:
+                try:
+                    vbits = target_isa.layout.initial_layout.get_virtual_bits()
+                    target_q = frozenset(p for q,p in vbits.items()
+                                        if hasattr(q,'_register'))
+                except:
+                    target_q = frozenset()
+
+            shared = probe_q & target_q
+            lms_p  = round(len(shared)/len(probe_q), 3)  if probe_q  else 0.0
+            lms_t  = round(len(shared)/len(target_q), 3) if target_q else 0.0
+
+            results.append({
+                'tile':        i,
+                'seed':        meta.seed,
+                'lms_probe':   lms_p,
+                'lms_target':  lms_t,
+                'n_shared':    len(shared),
+                'shared':      sorted(shared),
+                'H':           self.tiles[i].H,
+                'inv':         self.tiles[i].inv,
+                'relevance':   'HIGH' if lms_p>=0.8 else
+                               'MODERATE' if lms_p>=0.5 else
+                               'LOW' if lms_p>=0.2 else 'NEGLIGIBLE',
+            })
+
+        return sorted(results, key=lambda x: -x['lms_probe'])
+
+    def best_match(self, target_isa) -> dict:
+        """Return the tile with highest Layout Match Score for target_isa."""
+        scores = self.tile_match_scores(target_isa)
+        return scores[0] if scores else None
         """
         Per-tile execution-state summary.
         Returns dict keyed by tile_id with raw measurements.
@@ -322,7 +378,7 @@ class SpatialHardwareState:
       - calibration-guided patch selection (tiling_geometry.py)
       - validated patch libraries per backend
 
-    Paper: doi:10.5281/zenodo.21186260
+    Paper: doi:10.5281/zenodo.21186259
     """
     states:         List[HardwareState]
     tiled_snapshot: TiledSnapshot

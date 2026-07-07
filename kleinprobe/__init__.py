@@ -58,13 +58,14 @@ from .snapshot  import Snapshot, CalibrationSlice
 from .tracker   import DriftTracker
 from .baselines import Baseline, BASELINES, get_baseline, register_baseline
 from .circuit   import build_probe_circuit, PREDICTED, validate_prediction
-from .state     import HardwareState, StateDelta, HardwareTrajectory
+from .state     import (HardwareState, StateDelta, HardwareTrajectory,
+                        LayoutMatchResult, layout_match_score)
 from .metrics   import (P0, Z0, N_SYN,
                         syndrome_entropy, invariant_fraction,
                         dominant_frequency, z_raw,
                         probe_signal_score, compute_all)
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __author__  = "Leonardo Roma"
 __license__ = "MIT"
 
@@ -85,6 +86,8 @@ __all__ = [
     "HardwareState",
     "StateDelta",
     "HardwareTrajectory",
+    "LayoutMatchResult",
+    "layout_match_score",
     # metrics — canonical definitions
     "P0", "Z0", "N_SYN",
     "syndrome_entropy",
@@ -94,6 +97,7 @@ __all__ = [
     "probe_signal_score",
     "compute_all",
 ]
-# analyzer and policy are opt-in:
+# opt-in modules:
 #   from kleinprobe.analyzer import DriftAnalyzer, QueueDriftTracker
-#   from kleinprobe.policy import PolicyBase, NullPolicy
+#   from kleinprobe.policy   import PolicyBase, NullPolicy
+#   from kleinprobe.tiling   import TiledSnapshot, SpatialHardwareState
