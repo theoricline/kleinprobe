@@ -300,6 +300,40 @@ print(analysis.alerts)         # list of alert strings
 
 ---
 
+## v0.3: Tiled spatial probe (research extension)
+
+`run_tiled()` deploys multiple Klein 3×2 probe circuits simultaneously across non-overlapping chip regions, returning a spatial execution-state sample.
+
+**Status:** hardware validated on ibm_fez (2026-07-07, 3 tiles, CV=0.085). All tiles matched predicted syndrome pattern. H spread = 0.93 bits across regions.
+
+```python
+from kleinprobe.tiling import TiledSnapshot, SpatialHardwareState
+
+# Run 3-tile probe with pre-validated initial_layout configs
+tsnap = probe.run_tiled(n_tiles=3, seeds=[39, 2, 175])
+
+if tsnap.is_valid:
+    print(tsnap.report())
+    # Tile 0: H=3.78  inv=0.820  ✓
+    # Tile 1: H=4.70  inv=0.729  ✓
+    # Tile 2: H=4.71  inv=0.728  ✓
+    # Spatial variance: 0.532
+
+    spatial = SpatialHardwareState.from_tiled(tsnap)
+    print(spatial.H_spread)         # 0.9335 bits
+    print(spatial.inv_spread)       # 0.0918
+    print(spatial.spatial_variance) # scalar uniformity measure
+```
+
+**Always validate before interpreting:**
+- `tsnap.validation['disjoint']` — non-overlapping qubit placement confirmed
+- `tsnap.validation['depth_cv']` — depth CV < 0.30
+- `tsnap.is_valid` — both checks passed
+
+**Note:** Seed-based routing (`optimization_level=3`) on ibm_fez clusters all seeds in the same chip region. Use `initial_layout` with calibration data for genuine spatial coverage. See formalism paper for methodology.
+
+---
+
 ## Non-goals
 
 KleinProbe explicitly does NOT:
@@ -324,21 +358,25 @@ KleinProbe provides a missing intermediate abstraction: circuit-conditioned hard
 
 ## Known hardware baselines
 
-| Backend | H (mean ± σ) | inv (mean ± σ) | Sessions | Regime |
-|---------|-------------|----------------|----------|--------|
-| `ibm_fez` | 4.50 ± 0.15 | 0.900 ± 0.020 | 6 | high_entropy |
-| `ibm_marrakesh` | 3.37 ± 0.10 | 0.834 ± 0.020 | 2 | high_entropy |
-| `ibm_kingston` | 1.05 ± 0.15 | 0.947 ± 0.020 | 1 | collapsed |
+| Backend | H (mean ± σ) | inv (mean ± σ) | Sessions | Notes |
+|---------|-------------|----------------|----------|-------|
+| `ibm_fez` | 4.50 ± 0.15 | 0.900 ± 0.020 | 6 | Papers 1-6 baseline. Session 7 (2026-07-05): H=2.878, inv=0.898 — different calibration state. |
+| `ibm_marrakesh` | 3.30 ± 0.21 | 0.809 ± 0.033 | 4 | High session-to-session variability (H range 2.97–3.55). ~8-10 sessions needed for stable baseline. |
+| `ibm_kingston` | 2.69 ± 0.00 | 0.885 ± 0.002 | 2* | *Post-transition sessions only (S2+S3). S1 was a transient collapsed state (H=1.05). |
 
-Snapshots deviating >2σ from baseline trigger an alert. Note that `ibm_kingston` operates in a **collapsed regime** (H≈1.05, ~2 effective syndrome patterns). Cross-backend H comparisons require per-backend normalisation: `H_norm = (H − μ) / σ`.
+Snapshots deviating >2σ from baseline trigger an alert.
+
+**Important:** H is sensitive to calibration events and varies substantially across sessions. inv is more stable (σ ≈ 3× smaller than H). Cross-backend H comparisons require per-backend normalisation: `H_norm = (H − μ) / σ`. Regime classification (collapsed/mid/high entropy) must be assigned per session, not per backend.
 
 ---
 
 ## Overhead
 
 - **Circuit size:** 18 qubits, depth ~88 gates
-- **Runtime:** ~15-30 seconds on IBM open plan
-- **Cost:** 1 PUB, 1024 shots (negligible vs main experiment)
+- **Runtime:** ~3 seconds (single-tile probe, δ=0 only)
+- **Tiled runtime:** ~4 seconds (3-tile simultaneous probe)
+- **Cost:** 1 PUB per tile, 1024-4096 shots — runs in parallel with your main circuit as a PUB, zero additional queue time
+- **Note:** The previous ~7s figure included the full δ-family (4 PUBs). The baseline collection script runs δ=0 only.
 - **Can be submitted as a PUB alongside your main circuit** — zero additional queue wait time
 
 ---
