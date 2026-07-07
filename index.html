@@ -495,11 +495,6 @@ match.relevance   <span class="c"># 'HIGH' | 'MODERATE' | 'LOW' | 'NEGLIGIBLE'</
 best = tsnap.<span class="fn">best_match</span>(target_isa)<br>
 <span class="c"># {'tile': 0, 'lms_probe': 0.944, 'H': 3.78, 'relevance': 'HIGH'}</span>
     </div>
-
-    <p style="font-size:13px; color:var(--text-dim)">
-      Called <strong style="color:var(--text)">Layout Match Score</strong> (not "overlap")
-      to avoid confusion with tile-to-tile disjointness, which is the opposite concept.
-    </p>
     <p>
       Version 0.2 introduces structured state objects and a drift analysis layer
       while keeping the core API fully backward compatible.
