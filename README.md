@@ -360,9 +360,9 @@ KleinProbe provides a missing intermediate abstraction: circuit-conditioned hard
 
 | Backend | H (mean ± σ) | inv (mean ± σ) | Sessions | Notes |
 |---------|-------------|----------------|----------|-------|
-| `ibm_fez` | 4.50 ± 0.15 | 0.900 ± 0.020 | 6 | Papers 1-6 baseline. Session 7 (2026-07-05): H=2.878, inv=0.898 — different calibration state. |
-| `ibm_marrakesh` | 3.30 ± 0.21 | 0.809 ± 0.033 | 4 | High session-to-session variability (H range 2.97–3.55). ~8-10 sessions needed for stable baseline. |
-| `ibm_kingston` | 2.69 ± 0.00 | 0.885 ± 0.002 | 2* | *Post-transition sessions only (S2+S3). S1 was a transient collapsed state (H=1.05). |
+| `ibm_fez` | 4.50 ± 0.15 | 0.900 ± 0.020 | 6 | Papers 1-6 baseline. S7-S10 (July 5-7): H≈2.88-2.96 — new calibration era. |
+| `ibm_marrakesh` | 3.30 ± 0.21 | 0.809 ± 0.033 | 6 | H range 2.97–3.62 across sessions. ~8-10 sessions needed for stable baseline. |
+| `ibm_kingston` | 2.75 ± 0.06 | 0.883 ± 0.003 | 4* | *Post-transition only. S1 collapsed (H=1.05) was transient. Regime is per-session. |
 
 Snapshots deviating >2σ from baseline trigger an alert.
 
