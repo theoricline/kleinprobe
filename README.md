@@ -369,9 +369,6 @@ best   = tsnap.best_match(target_isa)
 # Tile 0 covers 94% of the probe qubits used by your circuit.
 # H=3.78 and inv=0.820 reflect the execution environment your experiment experienced.
 ```
-
-**Naming note:** this metric is called *Layout Match Score* (not "overlap") to avoid confusion with tile-to-tile disjointness, which is the opposite concept.
-
 ---
 
 KleinProbe explicitly does NOT:
