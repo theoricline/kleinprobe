@@ -334,7 +334,45 @@ if tsnap.is_valid:
 
 ---
 
-## Non-goals
+## Layout Match Score
+
+Before running KleinProbe, check how well the probe layout matches your target circuit's physical qubit placement. A high score means the probe is measuring the same chip region your experiment uses.
+
+```python
+from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+from kleinprobe import layout_match_score
+
+# Transpile your circuit and the probe to the same backend
+pm         = generate_preset_pass_manager(optimization_level=3, backend=backend)
+target_isa = pm.run(my_circuit)
+probe_isa  = pm.run(probe_circuit)
+
+match = layout_match_score(probe_isa, target_isa)
+print(match.report())
+# Layout Match Score
+#   Probe relevance:   0.833  (15/18 probe qubits shared)  [HIGH]
+#   Target coverage:   0.300  (15/50 target qubits covered)
+#   Shared qubits:     [87, 88, 89, 90, 91, 92, 97, 98, ...]
+
+match.lms_probe    # 0.833 — how relevant is the probe to your circuit
+match.lms_target   # 0.300 — what fraction of your circuit is characterised
+match.relevance    # 'HIGH' | 'MODERATE' | 'LOW' | 'NEGLIGIBLE'
+```
+
+With tiling — find which tile best matches your circuit:
+
+```python
+scores = tsnap.tile_match_scores(target_isa)
+best   = tsnap.best_match(target_isa)
+
+# {'tile': 0, 'lms_probe': 0.944, 'H': 3.78, 'inv': 0.820, 'relevance': 'HIGH'}
+# Tile 0 covers 94% of the probe qubits used by your circuit.
+# H=3.78 and inv=0.820 reflect the execution environment your experiment experienced.
+```
+
+**Naming note:** this metric is called *Layout Match Score* (not "overlap") to avoid confusion with tile-to-tile disjointness, which is the opposite concept.
+
+---
 
 KleinProbe explicitly does NOT:
 - Modify hardware, transpiler settings, or execution parameters

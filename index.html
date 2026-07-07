@@ -470,7 +470,36 @@ spatial.spatial_variance <span class="c"># scalar uniformity measure</span>
       The previous ~7s figure included the full δ-family (4 PUBs).
     </p>
 
-    <h2 style="margin-top:40px"><span class="tag">v0.2.0</span>Hardware state objects</h2>
+    <h2 style="margin-top:40px"><span class="tag">v0.3.0 · lms</span>Layout Match Score</h2>
+    <p>
+      Before running KleinProbe, check how well the probe layout matches
+      your target circuit's physical qubit placement.
+      A high score means the probe is measuring the same chip region your experiment uses.
+    </p>
+
+    <div class="code-block">
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> layout_match_score<br>
+<br>
+match = <span class="fn">layout_match_score</span>(probe_isa, target_isa)<br>
+<span class="kw">print</span>(match.<span class="fn">report</span>())<br>
+<span class="c"># Layout Match Score</span><br>
+<span class="c">#   Probe relevance:  0.833  (15/18 qubits shared)  [HIGH]</span><br>
+<span class="c">#   Target coverage:  0.300  (15/50 target qubits)</span><br>
+<span class="c">#   Shared qubits:    [87, 88, 89, 90, 91, ...]</span><br>
+<br>
+match.lms_probe   <span class="c"># 0-1: probe relevance to your circuit</span><br>
+match.lms_target  <span class="c"># 0-1: fraction of your circuit characterised</span><br>
+match.relevance   <span class="c"># 'HIGH' | 'MODERATE' | 'LOW' | 'NEGLIGIBLE'</span><br>
+<br>
+<span class="c"># With tiling — find which tile best matches your circuit</span><br>
+best = tsnap.<span class="fn">best_match</span>(target_isa)<br>
+<span class="c"># {'tile': 0, 'lms_probe': 0.944, 'H': 3.78, 'relevance': 'HIGH'}</span>
+    </div>
+
+    <p style="font-size:13px; color:var(--text-dim)">
+      Called <strong style="color:var(--text)">Layout Match Score</strong> (not "overlap")
+      to avoid confusion with tile-to-tile disjointness, which is the opposite concept.
+    </p>
     <p>
       Version 0.2 introduces structured state objects and a drift analysis layer
       while keeping the core API fully backward compatible.
