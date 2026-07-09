@@ -4,52 +4,76 @@ kleinprobe
 Circuit-aware hardware observability layer for IBM Quantum.
 
 KleinProbe answers the question backend.properties() cannot:
-"What is the noise of *this circuit* on *these qubits* right now?"
+"What is the execution environment of THIS circuit on THESE qubits right now?"
 
-It runs a lightweight Klein 3×2 topology probe (18 qubits, ~88 gates)
-and returns circuit-conditioned noise metrics (H, inv, f, Z) with
-drift detection vs known hardware baselines.
+The full KleinAtlas pipeline:
 
-Quick start:
+    backend.properties()
+             ↓
+       KleinAtlas.build()       — discovers calibration-aware spatial tiles
+             ↓
+        3 validated tiles
+             ↓
+       KleinProbe ×3            — tiled co-execution probe
+             ↓
+       ExecutionSnapshot        — H, inv, validity per tile
+             ↓
+       classify_tiled()         — VALID_SPATIAL / VALID_ANOMALOUS / INVALID
+
+Quick start (single probe):
     from qiskit_ibm_runtime import QiskitRuntimeService
     from kleinprobe import KleinProbe
 
     service = QiskitRuntimeService()
-    backend = service.backend("ibm_marrakesh")
+    backend = service.backend("ibm_fez")
 
     probe = KleinProbe(backend)
-
-    # Single snapshot
-    snap = probe.run()
+    snap  = probe.run()
     print(snap.report())
 
-    # Drift tracking across a long experiment
-    tracker = probe.track()
-    tracker.checkpoint("before")
-    run_my_experiment()
-    tracker.checkpoint("after")
-    print(tracker.report())
+Quick start (tiled atlas pipeline):
+    from kleinprobe.atlas    import KleinAtlas
+    from kleinprobe.validity import classify_tiled, VALID_SPATIAL
+    from kleinprobe.circuit  import build_probe_circuit
+    from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+    from qiskit_ibm_runtime import SamplerV2 as Sampler
 
-    # Quick health check
-    status = probe.check()
-    print(status)
+    atlas = KleinAtlas(backend)
+    atlas.build()
+    print(atlas.report())
+
+    probe_qc = build_probe_circuit()
+    pubs = []
+    for tile in atlas.tiles:
+        pm = generate_preset_pass_manager(
+            optimization_level=3, backend=backend,
+            initial_layout=tile.initial_layout(probe_qc),
+            seed_transpiler=77)
+        pubs.append((pm.run(probe_qc),))
+
+    result = Sampler(backend).run(pubs, shots=4096).result()
+    # ... extract H, inv, match per tile, then:
+    validity = classify_tiled(tile_results, backend=backend.name)
+    print(validity.execution_map(backend.name))
 
 Three-layer observability model:
     Layer 1  backend.properties()   global device state     (IBM provides)
     Layer 2  KleinProbe             circuit-aware snapshot  (this module)
     Layer 3  your experiment        actual results          (you run)
 
-Layer 2 is the missing piece.
+Validity states:
+    VALID_SPATIAL    — all tiles nominal, spatial ranking valid
+    VALID_ANOMALOUS  — probe detected hardware anomaly (not a failure)
+    INVALID          — dominant syndrome changed, H not interpretable
 
 Validated hardware:
-    ibm_fez:       H≈4.5, inv≈0.90  (6 sessions, Papers 1-6)
-    ibm_marrakesh: H≈3.37, inv≈0.834 (1 session, job d93t5jcql68s73c8qg30)
-    ibm_kingston:  pending
+    ibm_fez:       Era2 H≈2.98±0.18  (n=11 sessions, post-Jul5)
+    ibm_marrakesh: H≈3.13±0.27       (n=12 sessions)
+    ibm_kingston:  H≈2.69±0.10       (n=9 sessions)
 
 References:
-    L. Roma, "Experimental Realization of the Klein Bottle Stabilizer Code
-    on a Superconducting Processor", Zenodo (2026).
-    doi:10.5281/zenodo.19454514
+    L. Roma, KleinProbe formalism, Zenodo (2026).
+    doi:10.5281/zenodo.21186259
     https://github.com/theoricline/kleinprobe
 """
 
@@ -64,13 +88,17 @@ from .metrics   import (P0, Z0, N_SYN,
                         syndrome_entropy, invariant_fraction,
                         dominant_frequency, z_raw,
                         probe_signal_score, compute_all)
+from .atlas     import KleinAtlas, Tile, AtlasMetadata
+from .validity  import (ValidityResult, TiledValidityResult,
+                        classify_tile, classify_tiled,
+                        VALID_SPATIAL, VALID_ANOMALOUS, INVALID)
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __author__  = "Leonardo Roma"
 __license__ = "MIT"
 
 __all__ = [
-    # v1 — unchanged
+    # v1 — core probe
     "KleinProbe",
     "Snapshot",
     "CalibrationSlice",
@@ -96,8 +124,21 @@ __all__ = [
     "z_raw",
     "probe_signal_score",
     "compute_all",
+    # v0.4 — atlas + validity
+    "KleinAtlas",
+    "Tile",
+    "AtlasMetadata",
+    "ValidityResult",
+    "TiledValidityResult",
+    "classify_tile",
+    "classify_tiled",
+    "VALID_SPATIAL",
+    "VALID_ANOMALOUS",
+    "INVALID",
 ]
 # opt-in modules:
 #   from kleinprobe.analyzer import DriftAnalyzer, QueueDriftTracker
 #   from kleinprobe.policy   import PolicyBase, NullPolicy
 #   from kleinprobe.tiling   import TiledSnapshot, SpatialHardwareState
+#   from kleinprobe.atlas    import KleinAtlas   (also available at top level)
+#   from kleinprobe.validity import classify_tiled (also available at top level)
