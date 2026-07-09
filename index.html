@@ -150,8 +150,9 @@
     <div class="nav-links">
       <a href="#how">How it works</a>
       <a href="#usage">Usage</a>
+      <a href="#atlas">Atlas</a>
+      <a href="#validity">Validity</a>
       <a href="#metrics">Metrics</a>
-      <a href="#v2">v0.3</a>
       <a href="#baselines">Baselines</a>
       <a href="#paper">Paper</a>
       <a href="https://github.com/theoricline/kleinprobe">GitHub</a>
@@ -392,7 +393,92 @@ status = probe.<span class="fn">check</span>()<br>
 <!-- ── BASELINES ── -->
 <section id="baselines">
   <div class="container">
-    <h2><span class="tag">baselines</span>Hardware reference library</h2>
+    <h2 id="atlas"><span class="tag">v0.4.0</span>KleinAtlas — automatic tile discovery</h2>
+    <p>
+      KleinAtlas reads <code>backend.properties()</code> and automatically discovers
+      calibration-aware spatial tiles. No hardcoded patches. Rebuilds when the chip recalibrates.
+    </p>
+
+    <div class="code-block">
+<span class="c"># Build atlas from current calibration — automatic, no hardcoded patches</span><br>
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> KleinAtlas<br>
+<br>
+atlas = KleinAtlas(backend)<br>
+atlas.<span class="fn">build</span>()<br>
+<span class="kw">print</span>(atlas.<span class="fn">report</span>())<br>
+<span class="c"># KleinAtlas — ibm_fez</span><br>
+<span class="c">#   Calibration: 2026-07-08T16:03:08Z</span><br>
+<span class="c">#   Stale: no</span><br>
+<span class="c">#   Tile 0  central       T2=87.0µs  RO=0.0100</span><br>
+<span class="c">#   Tile 1  upper-left    T2=140.0µs RO=0.0082  ← best T2, worst execution</span><br>
+<span class="c">#   Tile 2  middle        T2=85.0µs  RO=0.0120</span><br>
+<br>
+<span class="c"># Check if calibration changed — rebuild if stale</span><br>
+<span class="kw">if</span> atlas.<span class="fn">is_stale</span>():<br>
+&nbsp;&nbsp;&nbsp;&nbsp;atlas.<span class="fn">build</span>()<br>
+<br>
+<span class="c"># Transpile probe for each tile — initial_layout ready to use</span><br>
+<span class="kw">for</span> tile <span class="kw">in</span> atlas.tiles:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;layout = tile.<span class="fn">initial_layout</span>(probe_qc)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pm = <span class="fn">generate_preset_pass_manager</span>(..., initial_layout=layout)
+    </div>
+
+    <p style="font-size:13px; color:var(--text-dim)">
+      <strong style="color:var(--text)">Runtime:</strong>
+      ~4s for 3-tile probe · zero additional queue time · one job.
+      Atlas rebuilds automatically when <code>is_stale()</code> returns True.
+    </p>
+
+    <h2 id="validity" style="margin-top:40px"><span class="tag">v0.4.0</span>Three-state validity model</h2>
+    <p>
+      KleinProbe measurements have three states. Only <code>INVALID</code> warrants discarding —
+      <code>VALID_ANOMALOUS</code> is a <strong>successful detection</strong>, not a failure.
+    </p>
+
+    <div class="code-block">
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> classify_tiled, VALID_SPATIAL, VALID_ANOMALOUS, INVALID<br>
+<br>
+validity = <span class="fn">classify_tiled</span>(tile_data, backend=<span class="nm">'ibm_marrakesh'</span>)<br>
+<span class="kw">print</span>(validity.<span class="fn">execution_map</span>(<span class="nm">'ibm_marrakesh'</span>))<br>
+<span class="c"># KLEINATLAS EXECUTION MAP — ibm_marrakesh</span><br>
+<span class="c">#   Tile  Region          Status            H      inv</span><br>
+<span class="c">#   0     lower-right     ✓ GOOD       4.5738   0.7346</span><br>
+<span class="c">#   1     central         ⚠ WARNING    5.3356   0.6147  ← best T2/RO, worst execution</span><br>
+<span class="c">#   2     upper-central   ✓ GOOD       4.6911   0.7334</span><br>
+<span class="c">#</span><br>
+<span class="c">#   Overall: VALID_ANOMALOUS</span><br>
+<span class="c">#   Anomaly: Class I — local</span><br>
+<span class="c">#   ✗ Spatial ranking not valid (2/3 tiles nominal)</span><br>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:16px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);color:var(--text-dim)">
+          <th style="text-align:left;padding:8px 12px">State</th>
+          <th style="text-align:left;padding:8px 12px">Condition</th>
+          <th style="text-align:left;padding:8px 12px">Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 12px;font-family:var(--mono);color:var(--green)">VALID_SPATIAL</td>
+          <td style="padding:8px 12px">match=True, inv normal</td>
+          <td style="padding:8px 12px">Spatial ranking valid</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 12px;font-family:var(--mono);color:var(--amber)">VALID_ANOMALOUS</td>
+          <td style="padding:8px 12px">match=True, inv degraded</td>
+          <td style="padding:8px 12px">Probe detected real hardware anomaly</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 12px;font-family:var(--mono);color:#ef5350">INVALID</td>
+          <td style="padding:8px 12px">match=False</td>
+          <td style="padding:8px 12px">Dominant syndrome changed — discard</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="baselines"><span class="tag">baselines</span>Hardware reference library</h2>
     <p>
       KleinProbe ships with validated reference values from real hardware sessions.
       Snapshots deviating &gt;2σ from baseline trigger a drift alert automatically.
@@ -404,19 +490,19 @@ status = probe.<span class="fn">check</span>()<br>
       </thead>
       <tbody>
         <tr>
-          <td>ibm_fez</td><td>4.50 ± 0.15</td><td>0.900 ± 0.020</td><td>6</td>
-          <td>Papers 1-6 baseline. S7-S10 (July 5-7): H≈2.88-2.96 — new calibration era.</td>
+          <td>ibm_fez (Era 2)</td><td>2.977 ± 0.177</td><td>0.889 ± 0.019</td><td>11</td>
+          <td>Post-Jul5 current baseline. Era 1 (H=4.50, Papers 1-6) archived.</td>
         </tr>
         <tr>
-          <td>ibm_marrakesh</td><td>3.30 ± 0.21</td><td>0.809 ± 0.033</td><td>6</td>
-          <td>H range 2.97–3.62 across sessions. ~8-10 sessions for stable baseline.</td>
+          <td>ibm_marrakesh</td><td>3.133 ± 0.269</td><td>0.855 ± 0.043</td><td>12</td>
+          <td>Highest variability. 3 documented anomaly events (Classes I, III).</td>
         </tr>
         <tr>
           <td>ibm_kingston</td>
-          <td>2.75 ± 0.06</td>
-          <td>0.883 ± 0.003</td>
-          <td>4*</td>
-          <td>*Post-transition only. S1 collapsed (H=1.05) was transient. Regime is per-session.</td>
+          <td>2.691 ± 0.097</td>
+          <td>0.890 ± 0.010</td>
+          <td>9</td>
+          <td>Most stable chip. inv_std=0.010. Best tile is middle region (not central).</td>
         </tr>
       </tbody>
     </table>
@@ -495,6 +581,11 @@ match.relevance   <span class="c"># 'HIGH' | 'MODERATE' | 'LOW' | 'NEGLIGIBLE'</
 best = tsnap.<span class="fn">best_match</span>(target_isa)<br>
 <span class="c"># {'tile': 0, 'lms_probe': 0.944, 'H': 3.78, 'relevance': 'HIGH'}</span>
     </div>
+
+    <p style="font-size:13px; color:var(--text-dim)">
+      Called <strong style="color:var(--text)">Layout Match Score</strong> (not "overlap")
+      to avoid confusion with tile-to-tile disjointness, which is the opposite concept.
+    </p>
     <p>
       Version 0.2 introduces structured state objects and a drift analysis layer
       while keeping the core API fully backward compatible.

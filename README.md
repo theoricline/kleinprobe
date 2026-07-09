@@ -2,432 +2,243 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21186259.svg)](https://doi.org/10.5281/zenodo.21186259)
 
-**Circuit-conditioned hardware probing layer for IBM Quantum systems**
+**Circuit-conditioned hardware observability layer for IBM Quantum**
 
 ```
-backend.properties()  →  KleinProbe  →  your experiment
-[global device state]    [circuit-aware   [actual results]
-                          snapshot]
+backend.properties()
+         ↓
+   KleinAtlas.build()     discovers calibration-aware spatial tiles
+         ↓
+    KleinProbe ×3         tiled co-execution probe (~4 seconds)
+         ↓
+   ExecutionSnapshot      H, inv, validity per tile
+         ↓
+   classify_tiled()       VALID_SPATIAL / VALID_ANOMALOUS / INVALID
 ```
 
----
-
-## Overview
-
-KleinProbe uses a fixed stabilizer circuit to sample syndrome statistics on the same physical qubits selected by the transpiler for a given target experiment.
-
-The resulting metrics characterize the effective noise experienced by that specific circuit instance, including **layout-dependent and time-dependent effects not fully captured by static device calibration data alone**.
-
-KleinProbe does not modify hardware, error correction schemes, or execution paths. It is a diagnostic layer that runs alongside quantum experiments.
+`backend.properties()` tells you qubit T2, T1, and readout error — measured in isolation.
+KleinProbe tells you what actually happens when **your circuit runs on those qubits right now**.
 
 ---
 
-## The problem
+## The gap
 
-`backend.properties()` provides calibration data for all qubits on a device, typically updated on a daily timescale.
+Static calibration metadata answers:
+> *"What are the physical properties of each qubit under isolated characterisation?"*
 
-However:
-- Your circuit is executed on a **subset of qubits selected dynamically by the transpiler**
-- That subset changes across runs depending on optimization, routing, and circuit structure
-- Calibration data is not conditioned on the actual circuit layout or execution instance
+KleinProbe answers:
+> *"How does this hardware region behave when executing this circuit topology — including connectivity, simultaneous operations, and correlated multi-qubit effects?"*
 
-As a result, static calibration may not fully represent the **effective noise environment experienced by a specific circuit execution**.
+These are different observables. The evidence:
 
----
-
-## KleinProbe approach
-
-KleinProbe achieves this by:
-- Running a lightweight structured **probe circuit**
-- Executing it on the **same physical qubits selected for your target circuit**
-- Using the same transpilation context where possible
-- Extracting syndrome-based statistical metrics from the hardware response
-
-This produces a **circuit-conditioned noise snapshot** aligned with the actual execution environment of your experiment.
+- Two successive IBM calibration events produced **identical** T2/T1/RO tables while KleinProbe detected significant changes in syndrome entropy H and GHZ fidelity across all three spatial tiles.
+- The chip region with the **best** T2 and lowest readout error consistently produced the **worst** circuit execution quality (the "patch_2 paradox" on ibm_fez).
+- KleinProbe detected a readout bias anomaly (P(meas0|prep1)=0.097 on q29) that was not visible in `backend.properties()` at execution time.
+- Pearson r(H_probe, 1−F_GHZ) = 0.725–0.999 across four independent runs on ibm_fez, and r=0.949 on ibm_kingston.
 
 ---
 
 ## Install
 
 ```bash
-pip install kleinprobe
+pip install git+https://github.com/theoricline/kleinprobe.git
 ```
 
-Or from source:
-```bash
-git clone https://github.com/theoricline/kleinprobe
-cd kleinprobe
-pip install -e .
-```
+Requires: `qiskit >= 2.0`, `qiskit-ibm-runtime >= 0.20`
 
 ---
 
-## Quick start
+## Quick start — single probe
 
 ```python
 from qiskit_ibm_runtime import QiskitRuntimeService
 from kleinprobe import KleinProbe
 
 service = QiskitRuntimeService()
-backend = service.backend("ibm_marrakesh")
+backend = service.backend("ibm_fez")
 
 probe = KleinProbe(backend)
 snap  = probe.run()
 print(snap.report())
+# H=2.92  inv=0.901  dom='100001' ✓  Z=287.3  S=1.0
 ```
 
-Output:
+**~3 seconds execution. Zero additional queue time (PUB mode).**
+
+---
+
+## KleinAtlas pipeline — tiled spatial probe
+
+```python
+from kleinprobe import KleinAtlas, classify_tiled, VALID_SPATIAL
+from kleinprobe.circuit import build_probe_circuit
+from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+# 1. Build atlas from current calibration — no hardcoded patches
+atlas = KleinAtlas(backend)
+atlas.build()
+print(atlas.report())
+# KleinAtlas — ibm_fez
+#   Calibration: 2026-07-08T16:03:08Z
+#   Tiles: 3  (each 18 qubits)
+#   Excluded: 0 qubits
+#   Tile 0  central       T2=87.0µs  RO=0.0100
+#   Tile 1  upper-left    T2=140.0µs RO=0.0082
+#   Tile 2  middle        T2=85.0µs  RO=0.0120
+
+# 2. Transpile probe circuit for each tile
+probe_qc = build_probe_circuit()
+pubs = []
+for tile in atlas.tiles:
+    pm = generate_preset_pass_manager(
+        optimization_level=3, backend=backend,
+        initial_layout=tile.initial_layout(probe_qc),
+        seed_transpiler=77)
+    pubs.append((pm.run(probe_qc),))
+
+# 3. Run all tiles in one job (~4 seconds)
+result = Sampler(backend).run(pubs, shots=4096).result()
+
+# 4. Extract metrics and classify
+tile_data = []
+for i, tile in enumerate(atlas.tiles):
+    counts = result[i].data.c.get_counts()
+    # compute H, inv, match from counts...
+    tile_data.append({
+        'match': True, 'H': 3.78, 'inv': 0.820,
+        'region_label': tile.region_label
+    })
+
+validity = classify_tiled(tile_data, backend=backend.name)
+print(validity.execution_map(backend.name))
+# KLEINATLAS EXECUTION MAP — ibm_fez
+#   Tile   Region          Status            H      inv
+#   0      central         ✓ GOOD       3.7800   0.8200
+#   1      upper-left      ⚠ WARNING    4.7000   0.6150
+#   2      middle          ✓ GOOD       4.3900   0.7800
+#
+#   Overall: VALID_ANOMALOUS
+#   Anomaly: Class I — local
 ```
-KleinProbe Snapshot — 2026-04-08T16:14:52Z
-  Backend:   ibm_marrakesh
-  Job:       d93t5jcql68s73c8qg30
-  δ=0  shots=1024  depth=87
 
-  Predicted: '100001'
-  Got:       '100001'  f=0.4836  ✓ MATCH
+**~4 seconds. One job. Spatial snapshot of the chip's execution environment.**
 
-  H     = 3.3686 bits   (syndrome entropy)
-  inv   = 0.8340         (Klein invariant fraction)
-  Z_raw = 120.7          (statistical significance vs uniform baseline)
-  S     = 1.000          (probe signal score)
+---
+
+## Validity model
+
+KleinProbe measurements have three states:
+
+| State | Condition | Meaning |
+|-------|-----------|---------|
+| `VALID_SPATIAL` | match=True, inv normal | Spatial ranking valid |
+| `VALID_ANOMALOUS` | match=True, inv degraded | **Probe detected real hardware anomaly** |
+| `INVALID` | match=False | Dominant syndrome changed — discard |
+
+`VALID_ANOMALOUS` is not a probe failure. It is a **successful detection**.
+Only `INVALID` (match=False) warrants discarding a measurement.
+
+```python
+from kleinprobe import classify_tile, VALID_SPATIAL, VALID_ANOMALOUS, INVALID
+
+result = classify_tile(match=True, H=5.34, inv=0.61, backend='ibm_marrakesh')
+print(result.state)          # VALID_ANOMALOUS
+print(result.status_icon())  # ⚠ WARNING
+print(result.reason)
+# inv=0.610 below threshold 0.818. Antipodal edge qubit degraded.
+# Probe detecting real hardware anomaly.
 ```
 
 ---
 
-## Drift tracking
-
-Monitor calibration drift across a long experiment.
-
-```python
-tracker = probe.track()
-
-tracker.checkpoint("before")
-run_my_experiment_batch_1()
-tracker.checkpoint("mid")
-run_my_experiment_batch_2()
-tracker.checkpoint("after")
-
-print(tracker.report())
-```
-
-Output:
-```
-============================================================
-KleinProbe Drift Report
-Backend:     ibm_marrakesh
-Checkpoints: 3
-Match rate:  100%
-H range:     3.34 – 3.89 bits
-inv range:   0.771 – 0.841
-============================================================
-
-  #      time        H      inv      S     ΔH    Δinv  match  alert
-  ----------------------------------------------------------------
-  1  16:14:52   3.3400   0.8410   1.000   -0.029  +0.007    ✓
-  2  17:23:11   3.4100   0.8290   1.000   +0.041  -0.005    ✓
-  3  18:45:03   3.8900   0.7710   0.780   +0.521  -0.063    ✓   ⚠️ ALERT
-
-ALERTS:
-  Checkpoint 3: Calibration drift detected:
-    H=3.890 is higher than baseline 3.369±0.100 (Δ=+0.521)
-```
-
----
-
-## v2: Hardware state objects and drift analysis
-
-Version 0.2.0 introduces structured state objects and a drift analysis layer, while keeping the core API fully backward compatible.
-
-### HardwareState
-
-A structured estimate of the circuit-conditioned hardware state Θ(L,t).
-
-```python
-from kleinprobe import HardwareState
-
-state = HardwareState.from_snapshot(snap)
-
-state.vector            # np.array([H, inv, f, Z_raw, S])
-state.primary_vector    # np.array([H, inv, f])
-state.regime            # 'high_entropy' | 'mid_entropy' | 'collapsed'
-state.effective_patterns  # 2^H — effective number of syndrome patterns
-state.is_healthy        # bool
-```
-
-### StateDelta
-
-Difference between two HardwareState observations: Δθ = θ₂ − θ₁.
-
-```python
-delta = state2 - state1
-
-delta.dH              # ΔH (bits)
-delta.dinv            # Δ invariant fraction
-delta.drift_score     # scalar 0-1 (>0.5 = significant drift)
-delta.is_significant  # bool
-delta.norm_l2         # L2 norm of primary change vector
-delta.norm_inf        # L∞ norm
-delta.direction       # unit vector of change direction
-delta.relative_change # {'H': 0.12, 'inv': 0.03, 'f': 0.08}
-delta.dominant_shift  # which component changed most
-delta.summary()       # human-readable string
-```
-
-### HardwareTrajectory
-
-Time-ordered sequence of HardwareState observations.
-
-```python
-from kleinprobe import HardwareTrajectory
-
-traj = HardwareTrajectory(label="overnight_run")
-traj.add(HardwareState.from_snapshot(probe.run()))
-run_experiment_batch()
-traj.add(HardwareState.from_snapshot(probe.run()))
-
-traj.stability          # float 0-1 (1.0 = perfectly stable)
-traj.max_drift          # StateDelta with highest drift score
-traj.cumulative_delta   # total Δθ from first to last
-traj.had_regime_change  # bool
-traj.H_series           # list of H values
-traj.duration           # seconds from first to last observation
-traj.summary()          # human-readable report
-```
-
-### DriftAnalyzer (opt-in)
-
-Interprets a trajectory. Not imported by default — keeps the core package a pure observer.
-
-```python
-from kleinprobe.analyzer import DriftAnalyzer
-
-analyzer = DriftAnalyzer(baseline_backend="ibm_marrakesh")
-analysis = analyzer.analyze(traj)
-
-analysis.trend          # 'stable' | 'drifting' | 'degraded' | 'recovering'
-analysis.H_trend        # 'rising' | 'falling' | 'flat'
-analysis.stability      # float
-analysis.alerts         # list of alert strings
-analysis.summary()      # human-readable report
-```
-
-### QueueDriftTracker (opt-in)
-
-Tracks the θ₁/θ₂/Δθ pattern for queued jobs. Measures hardware state at submission and again after execution to quantify how much the hardware changed while your job waited.
-
-```python
-from kleinprobe.analyzer import QueueDriftTracker
-
-tracker = QueueDriftTracker(probe)
-
-tracker.record_submission()     # run probe, store θ₁
-job = sampler.run(my_circuits)  # submit your job
-job.result()                    # wait for execution
-
-result = tracker.record_execution()  # run probe, store θ₂
-print(result.summary())
-
-# QueueDriftResult:
-#   was_stable:      bool
-#   delta:           StateDelta (θ₂ − θ₁)
-#   queue_time_s:    float (seconds in queue)
-#   recommendation:  'proceed' | 'caution' | 'pause'
-```
-
----
-
-## What it measures
-
-| Metric | Meaning | Sensitive to |
-|--------|---------|-------------|
-| `H` | Shannon entropy of syndrome distribution (bits) | Total noise — more noise = higher H |
-| `inv` | Klein invariant fraction — P(bit₀=1) | Antipodal edge qubit quality (RO, T2) |
-| `f` | Dominant pattern frequency | Topological signal strength |
-| `Z_raw` | Statistical significance vs uniform baseline | `Z_raw = (f − p₀) / σ` — suitable for hypothesis testing |
-| `S` | Probe signal score — `clip(Z_raw / 50, 0, 1)` | Engineering indicator: S=1.0 strong signal, S<0.5 degraded |
-
-**Note:** `Z_raw` and `S` serve distinct roles and are not interchangeable. `Z_raw` is a statistical object; `S` is an engineering indicator. See [doi:10.5281/zenodo.21186259](https://doi.org/10.5281/zenodo.21186259) for formal definitions.
-
----
-
-## Architecture
-
-```
-Measurement layer (core):
-  circuit.py → snapshot.py → probe.py → tracker.py
-
-State layer (v0.2):
-  state.py → HardwareState, StateDelta, HardwareTrajectory
-
-Metrics layer (canonical definitions):
-  metrics.py → P0, Z0, all metric formulas
-
-Interpretation layer (opt-in):
-  analyzer.py → DriftAnalyzer, QueueDriftTracker
-
-Policy layer (opt-in, interface only):
-  policy.py → PolicyBase, NullPolicy (implementations: future)
-```
-
-KleinProbe measures. `analyzer.py` interprets. Users decide.
-
----
-
-## Recommended workflow
-
-```python
-# 1. Measure — run the probe
-snap  = probe.run()
-
-# 2. Structure — wrap in a state object
-from kleinprobe import HardwareState
-state = HardwareState.from_snapshot(snap)
-print(state.regime)            # 'high_entropy' | 'mid_entropy' | 'collapsed'
-
-# 3. Track — build a trajectory over your experiment
-from kleinprobe import HardwareTrajectory
-traj = HardwareTrajectory(label="my_experiment")
-traj.add(state)
-run_experiment_batch()
-traj.add(HardwareState.from_snapshot(probe.run()))
-
-# 4. Interpret — analyse the trajectory (opt-in)
-from kleinprobe.analyzer import DriftAnalyzer
-analysis = DriftAnalyzer(baseline_backend="ibm_marrakesh").analyze(traj)
-print(analysis.trend)          # 'stable' | 'drifting' | 'degraded'
-print(analysis.alerts)         # list of alert strings
-```
-
----
-
-## v0.3: Tiled spatial probe (research extension)
-
-`run_tiled()` deploys multiple Klein 3×2 probe circuits simultaneously across non-overlapping chip regions, returning a spatial execution-state sample.
-
-**Status:** hardware validated on ibm_fez (2026-07-07, 3 tiles, CV=0.085). All tiles matched predicted syndrome pattern. H spread = 0.93 bits across regions.
-
-```python
-from kleinprobe.tiling import TiledSnapshot, SpatialHardwareState
-
-# Run 3-tile probe with pre-validated initial_layout configs
-tsnap = probe.run_tiled(n_tiles=3, seeds=[39, 2, 175])
-
-if tsnap.is_valid:
-    print(tsnap.report())
-    # Tile 0: H=3.78  inv=0.820  ✓
-    # Tile 1: H=4.70  inv=0.729  ✓
-    # Tile 2: H=4.71  inv=0.728  ✓
-    # Spatial variance: 0.532
-
-    spatial = SpatialHardwareState.from_tiled(tsnap)
-    print(spatial.H_spread)         # 0.9335 bits
-    print(spatial.inv_spread)       # 0.0918
-    print(spatial.spatial_variance) # scalar uniformity measure
-```
-
-**Always validate before interpreting:**
-- `tsnap.validation['disjoint']` — non-overlapping qubit placement confirmed
-- `tsnap.validation['depth_cv']` — depth CV < 0.30
-- `tsnap.is_valid` — both checks passed
-
-**Note:** Seed-based routing (`optimization_level=3`) on ibm_fez clusters all seeds in the same chip region. Use `initial_layout` with calibration data for genuine spatial coverage. See formalism paper for methodology.
+## Anomaly taxonomy
+
+| Class | Scope | Example |
+|-------|-------|---------|
+| I — Local | Single tile | q91 T2=21µs collapse (Fez Jul8) |
+| II — Regional | Adjacent tiles | Pending documentation |
+| III — Chip-wide | All tiles simultaneously | Marrakesh Jul9 inv depression |
+| IV — Semantic | match=False | Dominant syndrome changed |
+
+Class IV is the only one that invalidates the probe.
+Classes I-III are successful detections.
 
 ---
 
 ## Layout Match Score
 
-Before running KleinProbe, check how well the probe layout matches your target circuit's physical qubit placement. A high score means the probe is measuring the same chip region your experiment uses.
+Check how well the probe layout matches your circuit before running:
 
 ```python
-from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from kleinprobe import layout_match_score
-
-# Transpile your circuit and the probe to the same backend
-pm         = generate_preset_pass_manager(optimization_level=3, backend=backend)
-target_isa = pm.run(my_circuit)
-probe_isa  = pm.run(probe_circuit)
 
 match = layout_match_score(probe_isa, target_isa)
 print(match.report())
 # Layout Match Score
 #   Probe relevance:   0.833  (15/18 probe qubits shared)  [HIGH]
 #   Target coverage:   0.300  (15/50 target qubits covered)
-#   Shared qubits:     [87, 88, 89, 90, 91, 92, 97, 98, ...]
 
-match.lms_probe    # 0.833 — how relevant is the probe to your circuit
-match.lms_target   # 0.300 — what fraction of your circuit is characterised
-match.relevance    # 'HIGH' | 'MODERATE' | 'LOW' | 'NEGLIGIBLE'
+# With tiling — find which tile best matches your circuit
+best = atlas.best_tile_for(target_isa)
 ```
-
-With tiling — find which tile best matches your circuit:
-
-```python
-scores = tsnap.tile_match_scores(target_isa)
-best   = tsnap.best_match(target_isa)
-
-# {'tile': 0, 'lms_probe': 0.944, 'H': 3.78, 'inv': 0.820, 'relevance': 'HIGH'}
-# Tile 0 covers 94% of the probe qubits used by your circuit.
-# H=3.78 and inv=0.820 reflect the execution environment your experiment experienced.
-```
----
-
-KleinProbe explicitly does NOT:
-- Modify hardware, transpiler settings, or execution parameters
-- Perform automatic transpiler optimization or layout selection
-- Perform quantum error correction
-- Predict circuit fidelity as a primary objective
-- Make execution decisions autonomously
-- Replace `backend.properties()` — it complements it
 
 ---
 
-```
-Layer 1  backend.properties()   global device state     IBM provides
-Layer 2  KleinProbe             circuit-aware snapshot  this module
-Layer 3  your experiment        actual results          you run
-```
+## What it measures
 
-KleinProbe provides a missing intermediate abstraction: circuit-conditioned hardware profiling.
+| Metric | Formula | Meaning |
+|--------|---------|---------|
+| `H` | Shannon entropy of syndrome distribution | Global execution disorder — lower is quieter |
+| `inv` | P(syndrome bit 0 = 1) | Antipodal edge integrity — sensitive to local qubit failures |
+| `f` | P(dominant pattern) | Dominant pattern confidence |
+| `Z_raw` | (f − P₀) / σ | Statistical significance vs flat baseline |
+| `S` | clip(Z/Z₀, 0, 1) | Normalised signal score |
+
+**H and inv measure different things:**
+- H is a global execution quality signal — transfers to co-located circuits
+- inv is a local antipodal qubit integrity signal — sensitive to single-qubit failures
 
 ---
 
 ## Known hardware baselines
 
-| Backend | H (mean ± σ) | inv (mean ± σ) | Sessions | Notes |
-|---------|-------------|----------------|----------|-------|
-| `ibm_fez` | 4.50 ± 0.15 | 0.900 ± 0.020 | 6 | Papers 1-6 baseline. S7-S10 (July 5-7): H≈2.88-2.96 — new calibration era. |
-| `ibm_marrakesh` | 3.30 ± 0.21 | 0.809 ± 0.033 | 6 | H range 2.97–3.62 across sessions. ~8-10 sessions needed for stable baseline. |
-| `ibm_kingston` | 2.75 ± 0.06 | 0.883 ± 0.003 | 4* | *Post-transition only. S1 collapsed (H=1.05) was transient. Regime is per-session. |
+| Backend | Era | H (mean ± σ) | inv (mean ± σ) | Sessions |
+|---------|-----|-------------|----------------|---------|
+| `ibm_fez` | Era 2 (post-Jul5) | 2.977 ± 0.177 | 0.889 ± 0.019 | 11 |
+| `ibm_fez` | Era 1 (Papers 1-6) | 4.500 ± 0.150 | 0.900 ± 0.020 | 6 |
+| `ibm_marrakesh` | — | 3.133 ± 0.269 | 0.855 ± 0.043 | 12 |
+| `ibm_kingston` | — | 2.691 ± 0.097 | 0.890 ± 0.010 | 9 |
 
-Snapshots deviating >2σ from baseline trigger an alert.
-
-**Important:** H is sensitive to calibration events and varies substantially across sessions. inv is more stable (σ ≈ 3× smaller than H). Cross-backend H comparisons require per-backend normalisation: `H_norm = (H − μ) / σ`. Regime classification (collapsed/mid/high entropy) must be assigned per session, not per backend.
+Fez underwent a calibration regime change ~2026-07-05: H dropped from ~4.50 to ~2.97 bits.
+Era 1 baseline is archived. Era 2 is the current operational baseline.
 
 ---
 
 ## Overhead
 
-- **Circuit size:** 18 qubits, depth ~88 gates
-- **Runtime:** ~3 seconds (single-tile probe, δ=0 only)
-- **Tiled runtime:** ~4 seconds (3-tile simultaneous probe)
-- **Cost:** 1 PUB per tile, 1024-4096 shots — runs in parallel with your main circuit as a PUB, zero additional queue time
-- **Note:** The previous ~7s figure included the full δ-family (4 PUBs). The baseline collection script runs δ=0 only.
-- **Can be submitted as a PUB alongside your main circuit** — zero additional queue wait time
+| Mode | PUBs | Execution | Queue overhead |
+|------|------|-----------|---------------|
+| Single probe | 1 | ~3s | 0 |
+| 3-tile atlas | 3 | ~4s | 0 |
+| Atlas + user circuit | N+3 | ~4s | 0 |
+
+Runs as PUBs in the same job as your experiment — zero additional queue time.
 
 ---
 
 ## Background
 
-KleinProbe is based on a structured stabilizer probe circuit derived from a non-orientable topological construction. The topology is used as a fixed, reproducible measurement kernel, enabling consistent sampling of syndrome statistics across hardware conditions. The probe circuit is used to extract circuit-conditioned noise signatures rather than to perform error correction.
+KleinProbe uses a Klein 3×2 stabilizer code circuit (18 qubits, δ=0) as a structured probe.
+The Klein bottle topology provides a non-trivial syndrome structure with a known expected output
+(`100001`), enabling calibration-independent anomaly detection.
 
-Validated on IBM Fez, Marrakesh, and Kingston (Heron r2 processors) across multiple calibration sessions.
+Formalism paper: [doi:10.5281/zenodo.21186259](https://doi.org/10.5281/zenodo.21186259)
 
-**Formalism paper:** L. Roma, "KleinProbe: A Circuit-Conditioned Statistical Estimator for Effective Quantum Hardware Noise", Zenodo (2026). [doi:10.5281/zenodo.21186259](https://doi.org/10.5281/zenodo.21186259)
-
-**Research:** L. Roma, "Experimental Realization of the Klein Bottle Stabilizer Code on a Superconducting Processor", Zenodo (2026). [doi:10.5281/zenodo.19454514](https://doi.org/10.5281/zenodo.19454514)
+Dataset: [github.com/theoricline/kleinatlas-data](https://github.com/theoricline/kleinatlas-data) (private)
 
 ---
 
 ## License
 
-MIT © Leonardo Roma 2026
+MIT — see LICENSE.
