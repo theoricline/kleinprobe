@@ -429,26 +429,26 @@ atlas.<span class="fn">build</span>()<br>
       Atlas rebuilds automatically when <code>is_stale()</code> returns True.
     </p>
 
-    <h2 id="validity" style="margin-top:40px"><span class="tag">v0.4.0</span>Three-state validity model</h2>
+    <h2 id="validity" style="margin-top:40px"><span class="tag">v0.4.0</span>Hardware state model</h2>
     <p>
-      KleinProbe measurements have three states. Only <code>INVALID</code> warrants discarding —
-      <code>VALID_ANOMALOUS</code> is a <strong>successful detection</strong>, not a failure.
+      KleinProbe is a <strong>hardware execution environment estimator</strong> — not a circuit
+      correctness validator. The four states describe the local hardware state of a chip region.
+      Application fidelity is one downstream consequence, not the quantity directly measured.
     </p>
 
     <div class="code-block">
-<span class="kw">from</span> kleinprobe <span class="kw">import</span> classify_tiled, VALID_SPATIAL, VALID_ANOMALOUS, INVALID<br>
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> classify_tiled, OPTIMAL, ELEVATED, CRITICAL, INVALID<br>
 <br>
 validity = <span class="fn">classify_tiled</span>(tile_data, backend=<span class="nm">'ibm_marrakesh'</span>)<br>
 <span class="kw">print</span>(validity.<span class="fn">execution_map</span>(<span class="nm">'ibm_marrakesh'</span>))<br>
 <span class="c"># KLEINATLAS EXECUTION MAP — ibm_marrakesh</span><br>
-<span class="c">#   Tile  Region          Status            H      inv</span><br>
-<span class="c">#   0     lower-right     ✓ GOOD       4.5738   0.7346</span><br>
-<span class="c">#   1     central         ⚠ WARNING    5.3356   0.6147  ← best T2/RO, worst execution</span><br>
-<span class="c">#   2     upper-central   ✓ GOOD       4.6911   0.7334</span><br>
+<span class="c">#   Tile  Region           State        Conf       H      inv</span><br>
+<span class="c">#   0     lower-right      ~ ELEVATED    35%  4.5290   0.7580  ★</span><br>
+<span class="c">#   1     upper-left       ~ ELEVATED    35%  4.5840   0.7610</span><br>
+<span class="c">#   2     upper-central    ⚠ CRITICAL    30%  4.8070   0.7220</span><br>
 <span class="c">#</span><br>
-<span class="c">#   Overall: VALID_ANOMALOUS</span><br>
-<span class="c">#   Anomaly: Class I — local</span><br>
-<span class="c">#   ✗ Spatial ranking not valid (2/3 tiles nominal)</span><br>
+<span class="c">#   Recommend: tile_0 (lower-right) — conf=35%  HOP=0.898 in experiment</span><br>
+<span class="c">#   tile_2 avoided — CRITICAL, HOP=0.195 in experiment (4.6× worse)</span><br>
     </div>
 
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:16px">
@@ -457,26 +457,40 @@ validity = <span class="fn">classify_tiled</span>(tile_data, backend=<span class
           <th style="text-align:left;padding:8px 12px">State</th>
           <th style="text-align:left;padding:8px 12px">Condition</th>
           <th style="text-align:left;padding:8px 12px">Meaning</th>
+          <th style="text-align:left;padding:8px 12px">Priority</th>
         </tr>
       </thead>
       <tbody>
         <tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:8px 12px;font-family:var(--mono);color:var(--green)">VALID_SPATIAL</td>
-          <td style="padding:8px 12px">match=True, inv normal</td>
-          <td style="padding:8px 12px">Spatial ranking valid</td>
+          <td style="padding:8px 12px;font-family:var(--mono);color:var(--green)">OPTIMAL</td>
+          <td style="padding:8px 12px">match=True, H near baseline, inv normal</td>
+          <td style="padding:8px 12px">Environment at calibrated reference</td>
+          <td style="padding:8px 12px">Preferred</td>
         </tr>
         <tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:8px 12px;font-family:var(--mono);color:var(--amber)">VALID_ANOMALOUS</td>
-          <td style="padding:8px 12px">match=True, inv degraded</td>
-          <td style="padding:8px 12px">Probe detected real hardware anomaly</td>
+          <td style="padding:8px 12px;font-family:var(--mono);color:#7cb8ff">ELEVATED</td>
+          <td style="padding:8px 12px">match=True, H or inv drifted from baseline</td>
+          <td style="padding:8px 12px">Environment shifted — usable, lower priority</td>
+          <td style="padding:8px 12px">Use if no OPTIMAL</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 12px;font-family:var(--mono);color:var(--amber)">CRITICAL</td>
+          <td style="padding:8px 12px">match=True, H or inv significantly shifted</td>
+          <td style="padding:8px 12px">Environment substantially outside reference</td>
+          <td style="padding:8px 12px">Avoid if possible</td>
         </tr>
         <tr>
           <td style="padding:8px 12px;font-family:var(--mono);color:#ef5350">INVALID</td>
           <td style="padding:8px 12px">match=False</td>
-          <td style="padding:8px 12px">Dominant syndrome changed — discard</td>
+          <td style="padding:8px 12px">Probe cannot characterise region — discard</td>
+          <td style="padding:8px 12px">Discard</td>
         </tr>
       </tbody>
     </table>
+    <p style="font-size:12px;color:var(--text-dim);margin-top:8px">
+      Backward compatibility: <code>VALID_SPATIAL = OPTIMAL</code>,
+      <code>VALID_ANOMALOUS = ELEVATED</code> are kept as aliases.
+    </p>
 
     <h2 id="baselines"><span class="tag">baselines</span>Hardware reference library</h2>
     <p>

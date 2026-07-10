@@ -126,29 +126,39 @@ print(validity.execution_map(backend.name))
 
 ---
 
-## Validity model
+## Hardware state model
 
-KleinProbe measurements have three states:
+KleinProbe is a **hardware execution environment estimator** — not a
+circuit correctness validator. The four states describe the local
+hardware state of a chip region. Application fidelity is one downstream
+consequence of the execution environment, not the quantity directly measured.
 
-| State | Condition | Meaning |
-|-------|-----------|---------|
-| `VALID_SPATIAL` | match=True, inv normal | Spatial ranking valid |
-| `VALID_ANOMALOUS` | match=True, inv degraded | **Probe detected real hardware anomaly** |
-| `INVALID` | match=False | Dominant syndrome changed — discard |
+| State | Condition | Meaning | Routing priority |
+|-------|-----------|---------|-----------------|
+| `OPTIMAL` | match=True, H near baseline, inv normal | Environment at calibrated reference | Preferred |
+| `ELEVATED` | match=True, H or inv drifted | Environment shifted from reference — still usable | Use if no OPTIMAL |
+| `CRITICAL` | match=True, H or inv significantly shifted | Environment substantially outside reference | Avoid if possible |
+| `INVALID` | match=False | Probe cannot characterise region | Discard |
 
-`VALID_ANOMALOUS` is not a probe failure. It is a **successful detection**.
-Only `INVALID` (match=False) warrants discarding a measurement.
+Only `INVALID` warrants discarding. `ELEVATED` and `CRITICAL` are
+hardware environment descriptions — circuits often execute well in
+`ELEVATED` state (HOP=0.898 in direct experiments). `CRITICAL` predicts
+elevated risk, not certain failure. Within any state, lower H = better
+execution environment.
 
 ```python
-from kleinprobe import classify_tile, VALID_SPATIAL, VALID_ANOMALOUS, INVALID
+from kleinprobe import classify_tile, OPTIMAL, ELEVATED, CRITICAL, INVALID
 
-result = classify_tile(match=True, H=5.34, inv=0.61, backend='ibm_marrakesh')
-print(result.state)          # VALID_ANOMALOUS
-print(result.status_icon())  # ⚠ WARNING
-print(result.reason)
-# inv=0.610 below threshold 0.818. Antipodal edge qubit degraded.
-# Probe detecting real hardware anomaly.
+# Marrakesh app circuit experiment (2026-07-10):
+r1 = classify_tile(match=True, H=4.529, inv=0.758, backend='ibm_marrakesh')
+r3 = classify_tile(match=True, H=4.807, inv=0.722, backend='ibm_marrakesh')
+print(r1.state, r1.execution_confidence)  # ELEVATED  35%  → HOP=0.898
+print(r3.state, r3.execution_confidence)  # CRITICAL  30%  → HOP=0.195
+# Route to r1: lower H, lower risk, 4.6× better outcome in experiment
 ```
+
+**Backward compatibility:** `VALID_SPATIAL = OPTIMAL` and
+`VALID_ANOMALOUS = ELEVATED` are kept as aliases.
 
 ---
 
