@@ -91,9 +91,10 @@ from .metrics   import (P0, Z0, N_SYN,
 from .atlas     import KleinAtlas, Tile, AtlasMetadata
 from .validity  import (ValidityResult, TiledValidityResult,
                         classify_tile, classify_tiled,
-                        VALID_SPATIAL, VALID_ANOMALOUS, INVALID)
+                        OPTIMAL, ELEVATED, CRITICAL, INVALID,
+                        VALID_SPATIAL, VALID_ANOMALOUS)
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __author__  = "Leonardo Roma"
 __license__ = "MIT"
 
@@ -132,9 +133,14 @@ __all__ = [
     "TiledValidityResult",
     "classify_tile",
     "classify_tiled",
+    # v0.4 hardware state model
+    "OPTIMAL",
+    "ELEVATED",
+    "CRITICAL",
+    "INVALID",
+    # backward compat aliases
     "VALID_SPATIAL",
     "VALID_ANOMALOUS",
-    "INVALID",
 ]
 # opt-in modules:
 #   from kleinprobe.analyzer import DriftAnalyzer, QueueDriftTracker
