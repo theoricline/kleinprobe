@@ -152,8 +152,8 @@ from kleinprobe import classify_tile, OPTIMAL, ELEVATED, CRITICAL, INVALID
 # Marrakesh app circuit experiment (2026-07-10):
 r1 = classify_tile(match=True, H=4.529, inv=0.758, backend='ibm_marrakesh')
 r3 = classify_tile(match=True, H=4.807, inv=0.722, backend='ibm_marrakesh')
-print(r1.state, r1.execution_confidence)  # ELEVATED  35%  → HOP=0.898
-print(r3.state, r3.execution_confidence)  # CRITICAL  30%  → HOP=0.195
+print(r1.state, r1.env_score)  # ELEVATED  35%  → HOP=0.898
+print(r3.state, r3.env_score)  # CRITICAL  30%  → HOP=0.195
 # Route to r1: lower H, lower risk, 4.6× better outcome in experiment
 ```
 
