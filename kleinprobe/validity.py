@@ -41,7 +41,7 @@ HARDWARE STATE MODEL
 
 ROUTING PRINCIPLE
 -----------------
-Route to the tile with the lowest risk_score (highest confidence).
+Route to the tile with the lowest risk_index (highest env_score).
 State priority: OPTIMAL > ELEVATED > CRITICAL > INVALID.
 Within the same state, use H to rank tiles — lower H = better
 execution environment. This ranking holds even when all tiles
@@ -130,8 +130,8 @@ class ValidityResult:
         inv:                  measured invariant fraction
         H:                    measured syndrome entropy (bits)
         inv_threshold:        ELEVATED boundary threshold used
-        execution_confidence: 0-100 continuous quality score
-        risk_score:           0.0-1.0 routing risk (0=optimal, 1=critical)
+        env_score: 0-100 continuous quality score
+        risk_index:           0.0-1.0 routing risk (0=optimal, 1=critical)
     """
     state:                str
     reason:               str
@@ -139,8 +139,8 @@ class ValidityResult:
     inv:                  float
     H:                    float
     inv_threshold:        float
-    execution_confidence: int   = 100
-    risk_score:           float = 0.0
+    env_score: float = 1.0
+    risk_index:           float = 0.0
     _region_label:        str   = ""
 
     @property
@@ -187,8 +187,8 @@ class ValidityResult:
             CRITICAL: "🔴", INVALID: "⬛",
         }.get(self.state, "?")
 
-    def confidence_label(self) -> str:
-        c = self.execution_confidence
+    def env_label(self) -> str:
+        c = int(self.env_score * 100)
         if c >= 80: return "EXCELLENT"
         if c >= 60: return "GOOD"
         if c >= 40: return "FAIR"
@@ -197,7 +197,7 @@ class ValidityResult:
 
     def __repr__(self):
         return (f"ValidityResult({self.state}, "
-                f"conf={self.execution_confidence}%, "
+                f"env={self.env_score:.2f}, "
                 f"H={self.H:.3f}, inv={self.inv:.3f})")
 
 
@@ -232,7 +232,7 @@ class TiledValidityResult:
         usable = [r for r in self.tile_results if r.state != INVALID]
         if not usable:
             return None
-        return min(usable, key=lambda r: r.risk_score)
+        return min(usable, key=lambda r: r.risk_index)
 
     @property
     def best_tile_index(self) -> Optional[int]:
@@ -262,7 +262,7 @@ class TiledValidityResult:
         lines = [
             header,
             f"  {'Tile':<6} {'Region':<20} {'State':<16} "
-            f"{'Conf':>6} {'H':>8} {'inv':>8}",
+            f"{'Env':>6} {'H':>8} {'inv':>8}",
             "  " + "-"*68,
         ]
         for i, r in enumerate(self.tile_results):
@@ -270,7 +270,7 @@ class TiledValidityResult:
             star   = " ★" if i == self.best_tile_index else ""
             lines.append(
                 f"  {i:<6} {region:<20} {r.status_icon():<16} "
-                f"{r.execution_confidence:>5}% "
+                f"{r.env_score:>6.2f} "
                 f"{r.H:>8.4f} {r.inv:>8.4f}{star}")
 
         lines.append("")
@@ -282,8 +282,8 @@ class TiledValidityResult:
             lines.append(
                 f"  Recommend: tile_{self.best_tile_index} "
                 f"({getattr(bt,'_region_label','')})  "
-                f"conf={bt.execution_confidence}%  "
-                f"H={bt.H:.4f}  risk={bt.risk_score:.3f}")
+                f"env={bt.env_score:.2f}  "
+                f"H={bt.H:.4f}  risk={bt.risk_index:.3f}")
         return "\n".join(lines)
 
     def __repr__(self):
@@ -293,7 +293,7 @@ class TiledValidityResult:
 
 # ── Confidence score ───────────────────────────────────────────────────────
 
-def compute_execution_confidence(
+def compute_env_score(
     H:       float,
     inv:     float,
     backend: str   = "",
@@ -302,17 +302,17 @@ def compute_execution_confidence(
     inv_baseline: Optional[float] = None,
 ) -> int:
     """
-    Compute execution confidence (0-100).
+    Compute environment score (0.0-1.0).
 
-    100 = execution environment at calibrated reference (OPTIMAL)
-     60 = ELEVATED regime
-     30 = CRITICAL regime
-      0 = maximally shifted
+    1.0 = execution environment at calibrated reference (OPTIMAL)
+    0.6 = ELEVATED regime
+    0.3 = CRITICAL regime
+    0.0 = maximally shifted
 
     Components:
       H_score   = max(0, 1 - (H - H_mean) / (4 * H_std))
       inv_score = min(1, (inv - 0.5) / (inv_mean - 0.5))
-      confidence = round((H_score * 0.5 + inv_score * 0.5) * 100)
+      env_score  = round(0.5 * H_score + 0.5 * inv_score, 3)
     """
     bk  = backend.lower()
     cfg = _CHIP_CONFIG.get(bk, _FALLBACK_CONFIG)
@@ -324,7 +324,7 @@ def compute_execution_confidence(
     H_score   = max(0.0, min(1.0, 1.0 - (H - H_mean) / (4.0 * H_sigma)))
     inv_score = max(0.0, min(1.0, (inv - 0.5) / max(inv_mean - 0.5, 0.01)))
 
-    return int(round((0.5 * H_score + 0.5 * inv_score) * 100))
+    return round(0.5 * H_score + 0.5 * inv_score, 3)
 
 
 # ── Classification ─────────────────────────────────────────────────────────
@@ -373,16 +373,16 @@ def classify_tile(
     H_1sigma     = H_mean + max(1.0 * H_sigma, 0.30)  # min 0.3 bits above mean
     H_3sigma     = H_mean + max(6.0 * H_sigma, 1.50)  # min 1.5 bits above mean
 
-    confidence = compute_execution_confidence(H, inv, bk, H_baseline, H_std)
-    risk       = round(1.0 - confidence / 100.0, 4)
+    env_score  = compute_env_score(H, inv, bk, H_baseline, H_std)
+    risk       = round(1.0 - env_score, 3)
 
     def _r(state, reason):
         r = ValidityResult(
             state=state, reason=reason,
             match=match, inv=inv, H=H,
             inv_threshold=inv_elevated,
-            execution_confidence=confidence,
-            risk_score=risk,
+            env_score=env_score,
+            risk_index=risk,
         )
         r._region_label = region_label
         return r
@@ -400,7 +400,7 @@ def classify_tile(
             f"Execution environment significantly shifted from reference. "
             f"inv={inv:.3f} (critical threshold {inv_critical:.3f}) "
             f"H={H:.3f} (3σ threshold {H_3sigma:.3f}). "
-            f"Avoid if alternatives exist. conf={confidence}%.")
+            f"Avoid if alternatives exist. env={env_score:.2f}.")
 
     # ELEVATED: inv slightly below threshold OR H > 1σ above baseline
     if inv < inv_elevated or H > H_1sigma:
@@ -408,12 +408,12 @@ def classify_tile(
             f"Execution environment drifted from calibrated reference. "
             f"inv={inv:.3f} (elevated threshold {inv_elevated:.3f}) "
             f"H={H:.3f} (1σ threshold {H_1sigma:.3f}). "
-            f"Usable; lower priority than OPTIMAL. conf={confidence}%.")
+            f"Usable; lower priority than OPTIMAL. env={env_score:.2f}.")
 
     # OPTIMAL
     return _r(OPTIMAL,
         f"Execution environment within calibrated reference range. "
-        f"conf={confidence}%.")
+        f"env={env_score:.2f}.")
 
 
 def classify_tiled(
