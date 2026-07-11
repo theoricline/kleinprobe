@@ -454,3 +454,114 @@ def classify_tiled(
         for t in tile_results
     ]
     return TiledValidityResult(tile_results=results)
+
+
+# ── Layout Match Score ─────────────────────────────────────────────────────
+
+def compute_lms(
+    probe_qubits: list,
+    app_physical_qubits: list,
+) -> float:
+    """
+    Layout Match Score — confidence metric, not quality metric.
+
+    Answers: "How representative is this probe measurement
+    of the target circuit's execution environment?"
+    NOT: "How good is the hardware?"
+
+    LMS = |probe ∩ app| / |app|
+
+    Range [0.0, 1.0]:
+      1.0 = probe fully covers app circuit footprint (direct measurement)
+      0.0 = probe and app share no physical qubits (not representative)
+
+    LMS is a property of the circuit layout, not the hardware state.
+    The same probe tile gives different LMS values for different circuits.
+
+    Interpretation by circuit width (approximate):
+      6–18 qubits    →  LMS 0.90–1.00  →  Direct measurement
+      20–40 qubits   →  LMS 0.50–0.80  →  High-confidence estimate
+      40–80 qubits   →  LMS 0.25–0.50  →  Moderate regional estimate
+      80–156 qubits  →  LMS 0.10–0.25  →  Global orientation only
+
+    Note: LMS depends on WHERE qubits are located, not just how many.
+    A 60-qubit circuit concentrated in one region may have higher LMS
+    than a 30-qubit circuit spread across the chip.
+    """
+    if not app_physical_qubits:
+        return 0.0
+    probe_set = set(probe_qubits)
+    app_set   = set(app_physical_qubits)
+    return round(len(probe_set & app_set) / len(app_set), 3)
+
+
+def lms_label(lms: float) -> str:
+    """Human-readable LMS confidence label."""
+    if lms >= 0.85: return "DIRECT"
+    if lms >= 0.50: return "HIGH"
+    if lms >= 0.25: return "MODERATE"
+    if lms >= 0.10: return "LOW"
+    return "MINIMAL"
+
+
+def effective_score(env: float, lms: float) -> float:
+    """
+    Confidence-attenuated environment score for forced tile ranking.
+
+    R_eff = env * (0.5 + 0.5 * LMS)
+
+    Use only when a single ranking number is required.
+    Prefer exposing env_score and LMS independently in reports —
+    they answer different questions and should not be collapsed.
+
+    Behaviour:
+      LMS = 1.0  →  R_eff = env          (full confidence)
+      LMS = 0.6  →  R_eff = 0.80 * env  (moderate attenuation)
+      LMS = 0.2  →  R_eff = 0.60 * env  (conservative)
+      LMS = 0.0  →  R_eff = 0.50 * env  (probe never fully discarded)
+    """
+    return round(env * (0.5 + 0.5 * lms), 3)
+
+
+def _env_label(env: float) -> str:
+    if env >= 0.75: return "EXCELLENT"
+    if env >= 0.55: return "GOOD"
+    if env >= 0.35: return "FAIR"
+    if env >= 0.15: return "POOR"
+    return "CRITICAL"
+
+
+def routing_report(
+    tile_name: str,
+    region:    str,
+    env:       float,
+    lms:       float,
+    state:     str,
+) -> str:
+    """
+    Weather-forecast style routing report.
+
+    Exposes env_score and LMS as two independent axes:
+      Environment  — how good is this hardware region?
+      Coverage     — how representative is this probe of your circuit?
+
+    Example:
+      tile_0 · upper-left
+      ─────────────────────────────────────────
+      Environment   [████░░░░░░]  0.41  FAIR
+      Coverage      [██████████]  1.00  DIRECT
+      State         ELEVATED
+      Effective     0.41
+    """
+    env_bar = "█" * int(env * 10) + "░" * (10 - int(env * 10))
+    lms_bar = "█" * int(lms * 10) + "░" * (10 - int(lms * 10))
+    eff     = effective_score(env, lms)
+    lines   = [
+        f"  {tile_name} · {region}",
+        f"  {'─'*41}",
+        f"  Environment   [{env_bar}]  {env:.2f}  {_env_label(env)}",
+        f"  Coverage      [{lms_bar}]  {lms:.2f}  {lms_label(lms)}",
+        f"  State         {state}",
+        f"  Effective     {eff:.2f}",
+    ]
+    return "\n".join(lines)

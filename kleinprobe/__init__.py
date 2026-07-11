@@ -93,6 +93,8 @@ from .validity  import (ValidityResult, TiledValidityResult,
                         classify_tile, classify_tiled,
                         OPTIMAL, ELEVATED, CRITICAL, INVALID,
                         VALID_SPATIAL, VALID_ANOMALOUS)
+from .validity  import (compute_lms, lms_label,
+                        effective_score, routing_report)
 
 __version__ = "0.4.1"
 __author__  = "Leonardo Roma"
@@ -138,6 +140,11 @@ __all__ = [
     "ELEVATED",
     "CRITICAL",
     "INVALID",
+    # LMS and routing
+    "compute_lms",
+    "lms_label",
+    "effective_score",
+    "routing_report",
     # backward compat aliases
     "VALID_SPATIAL",
     "VALID_ANOMALOUS",
