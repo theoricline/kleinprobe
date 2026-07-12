@@ -151,7 +151,7 @@
       <a href="#how">How it works</a>
       <a href="#usage">Usage</a>
       <a href="#atlas">Atlas</a>
-      <a href="#validity">Validity</a>
+      <a href="#validity">Ranking</a>
       <a href="#metrics">Metrics</a>
       <a href="#baselines">Baselines</a>
       <a href="#paper">Paper</a>
@@ -164,7 +164,7 @@
 <div class="hero">
   <div class="container">
     <div class="eyebrow">open source · MIT · IBM Quantum</div>
-    <h1>Circuit-aware hardware<br><span>observability</span><br>for IBM Quantum</h1>
+    <h1>Spatial execution environment<br><span>sensor</span><br>for IBM Quantum</h1>
     <p class="hero-sub">
       <code style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--blue)">backend.properties()</code>
       characterises global device state averaged over all qubits.
@@ -200,30 +200,29 @@
 <!-- ── HOW IT WORKS ── -->
 <section id="how">
   <div class="container">
-    <h2><span class="tag">architecture</span>Three-layer observability</h2>
+    <h2><span class="tag">architecture</span>Three modes of use</h2>
     <p>
-      KleinProbe provides a missing intermediate abstraction between
-      global device calibration and your experiment results.
+      KleinProbe operates as a sensor at three levels of granularity.
     </p>
 
     <div class="layers">
       <div class="layer">
-        <div class="layer-num">LAYER 1</div>
-        <div class="layer-name">backend.properties()</div>
-        <div class="layer-desc">Global device state. All qubits. Updated ~daily. Does not condition on which qubits your circuit uses.</div>
-        <span class="layer-badge badge-ibm">IBM provides</span>
+        <div class="layer-num">MODE 1</div>
+        <div class="layer-name">Environmental monitor</div>
+        <div class="layer-desc">Single probe — hardware snapshot of one region. H, inv, Z. Like a weather station: reports the environment, not the outcome.</div>
+        <span class="layer-badge badge-ibm">single tile</span>
       </div>
       <div class="layer highlight">
-        <div class="layer-num">LAYER 2</div>
-        <div class="layer-name">KleinProbe</div>
-        <div class="layer-desc">Circuit-conditioned snapshot. Executes a structured probe on the same physical qubits selected by the transpiler.</div>
-        <span class="layer-badge badge-this">this module</span>
+        <div class="layer-num">MODE 2</div>
+        <div class="layer-name">Spatial routing</div>
+        <div class="layer-desc">Multi-tile probe — ranked spatial map. Route to lowest-H usable tile. Validated: central region of ibm_fez ranked #1 in 6/6 independent runs.</div>
+        <span class="layer-badge badge-this">★ primary use</span>
       </div>
       <div class="layer">
-        <div class="layer-num">LAYER 3</div>
-        <div class="layer-name">Your experiment</div>
-        <div class="layer-desc">Actual results. You can now identify which jobs ran under degraded hardware conditions.</div>
-        <span class="layer-badge badge-you">you run</span>
+        <div class="layer-num">MODE 3</div>
+        <div class="layer-name">App-conditioned environment</div>
+        <div class="layer-desc">Probe + Layout Match Score. Quantifies how representative the probe is of your circuit's footprint. Correlation with application quality depends on LMS.</div>
+        <span class="layer-badge badge-you">with LMS</span>
       </div>
     </div>
 
@@ -429,67 +428,81 @@ atlas.<span class="fn">build</span>()<br>
       Atlas rebuilds automatically when <code>is_stale()</code> returns True.
     </p>
 
-    <h2 id="validity" style="margin-top:40px"><span class="tag">v0.4.0</span>Hardware state model</h2>
+    <h2 id="validity" style="margin-top:40px"><span class="tag">v0.5.0</span>Spatial environment ranking</h2>
+
     <p>
-      KleinProbe is a <strong>hardware execution environment estimator</strong> — not a circuit
-      correctness validator. The four states describe the local hardware state of a chip region.
-      Application fidelity is one downstream consequence, not the quantity directly measured.
+      The primary output of KleinProbe is a <strong>ranked spatial map</strong> — tiles ordered
+      by H from quietest to noisiest. Route to the lowest-H usable tile.
+    </p>
+    <p style="background:var(--bg-card);border-left:3px solid var(--blue);
+              padding:10px 14px;border-radius:0 4px 4px 0;font-size:13px;
+              margin:12px 0;">
+      <strong>Deviation states describe the probe's own observable relative to its calibration
+      baseline. They are NOT predictions of application circuit success or failure.</strong>
     </p>
 
     <div class="code-block">
-<span class="kw">from</span> kleinprobe <span class="kw">import</span> classify_tiled, OPTIMAL, ELEVATED, CRITICAL, INVALID<br>
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> classify_tiled<br>
 <br>
-validity = <span class="fn">classify_tiled</span>(tile_data, backend=<span class="nm">'ibm_marrakesh'</span>)<br>
-<span class="kw">print</span>(validity.<span class="fn">execution_map</span>(<span class="nm">'ibm_marrakesh'</span>))<br>
-<span class="c"># KLEINATLAS EXECUTION MAP — ibm_marrakesh</span><br>
-<span class="c">#   Tile  Region           State        Conf       H      inv</span><br>
-<span class="c">#   0     lower-right      ~ ELEVATED    35%  4.5290   0.7580  ★</span><br>
-<span class="c">#   1     upper-left       ~ ELEVATED    35%  4.5840   0.7610</span><br>
-<span class="c">#   2     upper-central    ⚠ CRITICAL    30%  4.8070   0.7220</span><br>
+sm = <span class="fn">classify_tiled</span>(tile_data, backend=<span class="nm">'ibm_fez'</span>)<br>
+<span class="kw">print</span>(sm.<span class="fn">spatial_map</span>())<br>
+<br>
+<span class="c"># SPATIAL ENVIRONMENT MAP — ibm_fez</span><br>
 <span class="c">#</span><br>
-<span class="c">#   Recommend: tile_0 (lower-right) — conf=35%  HOP=0.898 in experiment</span><br>
-<span class="c">#   tile_2 avoided — CRITICAL, HOP=0.195 in experiment (4.6× worse)</span><br>
+<span class="c">#   Rank  Region              H       Deviation</span><br>
+<span class="c">#   ──────────────────────────────────────────</span><br>
+<span class="c">#    #1   central           4.112   ▲▲ high</span><br>
+<span class="c">#    #2   upper-left-A      4.846   ▲▲ high</span><br>
+<span class="c">#    #3   lower-left        5.443   ▲▲▲ very high</span><br>
+<span class="c">#    ──   upper-left-B      —       probe invalid</span><br>
+<span class="c">#</span><br>
+<span class="c">#   Route to: central (#1)</span><br>
+<span class="c">#   Baseline reference: H_ref = 2.977 ± 0.215</span><br>
+<span class="c">#</span><br>
+<span class="c">#   Note: all tiles drifted from reference today.</span><br>
+<span class="c">#   Absolute H drifts with calibration cycles.</span><br>
+<span class="c">#   Relative ordering is the stable signal.</span><br>
     </div>
 
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:16px">
       <thead>
         <tr style="border-bottom:1px solid var(--border);color:var(--text-dim)">
           <th style="text-align:left;padding:8px 12px">State</th>
-          <th style="text-align:left;padding:8px 12px">Condition</th>
           <th style="text-align:left;padding:8px 12px">Meaning</th>
-          <th style="text-align:left;padding:8px 12px">Priority</th>
+          <th style="text-align:left;padding:8px 12px">Action</th>
         </tr>
       </thead>
       <tbody>
         <tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:8px 12px;font-family:var(--mono);color:var(--green)">OPTIMAL</td>
-          <td style="padding:8px 12px">match=True, H near baseline, inv normal</td>
-          <td style="padding:8px 12px">Environment at calibrated reference</td>
-          <td style="padding:8px 12px">Preferred</td>
+          <td style="padding:8px 12px;font-family:var(--mono);color:var(--green)">REFERENCE</td>
+          <td style="padding:8px 12px">H and inv within calibrated baseline range</td>
+          <td style="padding:8px 12px">Use — at reference</td>
         </tr>
         <tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:8px 12px;font-family:var(--mono);color:#7cb8ff">ELEVATED</td>
-          <td style="padding:8px 12px">match=True, H or inv drifted from baseline</td>
-          <td style="padding:8px 12px">Environment shifted — usable, lower priority</td>
-          <td style="padding:8px 12px">Use if no OPTIMAL</td>
+          <td style="padding:8px 12px;font-family:var(--mono);color:#7cb8ff">DRIFTED</td>
+          <td style="padding:8px 12px">H or inv has shifted moderately from baseline</td>
+          <td style="padding:8px 12px">Use — check rank</td>
         </tr>
         <tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:8px 12px;font-family:var(--mono);color:var(--amber)">CRITICAL</td>
-          <td style="padding:8px 12px">match=True, H or inv significantly shifted</td>
-          <td style="padding:8px 12px">Environment substantially outside reference</td>
-          <td style="padding:8px 12px">Avoid if possible</td>
+          <td style="padding:8px 12px;font-family:var(--mono);color:var(--amber)">STRONGLY_DRIFTED</td>
+          <td style="padding:8px 12px">H or inv substantially outside baseline</td>
+          <td style="padding:8px 12px">Use lowest rank available</td>
         </tr>
         <tr>
-          <td style="padding:8px 12px;font-family:var(--mono);color:#ef5350">INVALID</td>
-          <td style="padding:8px 12px">match=False</td>
-          <td style="padding:8px 12px">Probe cannot characterise region — discard</td>
-          <td style="padding:8px 12px">Discard</td>
+          <td style="padding:8px 12px;font-family:var(--mono);color:#ef5350">PROBE_INVALID</td>
+          <td style="padding:8px 12px">match=False — probe cannot characterise region</td>
+          <td style="padding:8px 12px">Discard this tile</td>
         </tr>
       </tbody>
     </table>
-    <p style="font-size:12px;color:var(--text-dim);margin-top:8px">
-      Backward compatibility: <code>VALID_SPATIAL = OPTIMAL</code>,
-      <code>VALID_ANOMALOUS = ELEVATED</code> are kept as aliases.
+
+    <p style="font-size:12px;color:var(--text-dim);margin-top:10px">
+      Only <code>PROBE_INVALID</code> warrants discarding. The other three states
+      describe deviation from the probe's calibration — not application circuit outcomes.<br>
+      Backward compatibility: <code>VALID_SPATIAL = REFERENCE</code>,
+      <code>VALID_ANOMALOUS = DRIFTED</code>, <code>OPTIMAL = REFERENCE</code>,
+      <code>ELEVATED = DRIFTED</code>, <code>CRITICAL = STRONGLY_DRIFTED</code>,
+      <code>INVALID = PROBE_INVALID</code>.
     </p>
 
     <h2 id="baselines"><span class="tag">baselines</span>Hardware reference library</h2>
@@ -504,8 +517,8 @@ validity = <span class="fn">classify_tiled</span>(tile_data, backend=<span class
       </thead>
       <tbody>
         <tr>
-          <td>ibm_fez (Era 2)</td><td>2.977 ± 0.177</td><td>0.889 ± 0.019</td><td>11</td>
-          <td>Post-Jul5 current baseline. Era 1 (H=4.50, Papers 1-6) archived.</td>
+          <td>ibm_fez (Era 2)</td><td>2.977 ± 0.215</td><td>0.889 ± 0.019</td><td>13</td>
+          <td>Post-Jul5 2026 current baseline. Era 1 (H≈4.50) archived.</td>
         </tr>
         <tr>
           <td>ibm_marrakesh</td><td>3.133 ± 0.269</td><td>0.855 ± 0.043</td><td>12</td>

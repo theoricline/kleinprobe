@@ -2,39 +2,57 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21186259.svg)](https://doi.org/10.5281/zenodo.21186259)
 
-**Circuit-conditioned hardware observability layer for IBM Quantum**
+**A spatial execution environment sensor for IBM Quantum**
+
+KleinProbe measures the local execution environment of chip regions
+through a structured 18-qubit probe circuit. It answers:
+
+> *"Which region of this chip is currently the quietest place to run my circuit?"*
+
+Not: *"Will my circuit succeed?"* — that depends on the circuit.
 
 ```
-backend.properties()
+backend.properties()        ← static calibration snapshot
          ↓
-   KleinAtlas.build()     discovers calibration-aware spatial tiles
+   KleinAtlas.build()       ← discovers spatial tiles
          ↓
-    KleinProbe ×3         tiled co-execution probe (~4 seconds)
+    KleinProbe × N          ← tiled co-execution probe (~4 seconds, 0 queue overhead)
          ↓
-   ExecutionSnapshot      H, inv, validity per tile
+   SpatialMap               ← ranked spatial environment map
          ↓
-   classify_tiled()       VALID_SPATIAL / VALID_ANOMALOUS / INVALID
+   Route to rank #1         ← lowest-H usable tile
 ```
-
-`backend.properties()` tells you qubit T2, T1, and readout error — measured in isolation.
-KleinProbe tells you what actually happens when **your circuit runs on those qubits right now**.
 
 ---
 
-## The gap
+## The core finding
 
-Static calibration metadata answers:
-> *"What are the physical properties of each qubit under isolated characterisation?"*
+**Absolute H values drift with calibration cycles.
+Relative spatial ordering remains stable.**
 
-KleinProbe answers:
-> *"How does this hardware region behave when executing this circuit topology — including connectivity, simultaneous operations, and correlated multi-qubit effects?"*
+Validated across three IBM Heron r2 processors:
 
-These are different observables. The evidence:
+- ibm_fez central region: **ranked #1 in 6/6 independent runs**
+  despite H varying 0.54 bits across sessions
+- ibm_marrakesh upper-left: **ranked #1 in 4/4 independent runs**
+- ibm_kingston lower-left/middle: consistently best region
 
-- Two successive IBM calibration events produced **identical** T2/T1/RO tables while KleinProbe detected significant changes in syndrome entropy H and GHZ fidelity across all three spatial tiles.
-- The chip region with the **best** T2 and lowest readout error consistently produced the **worst** circuit execution quality (the "patch_2 paradox" on ibm_fez).
-- KleinProbe detected a readout bias anomaly (P(meas0|prep1)=0.097 on q29) that was not visible in `backend.properties()` at execution time.
-- Pearson r(H_probe, 1−F_GHZ) = 0.725–0.999 across four independent runs on ibm_fez, and r=0.949 on ibm_kingston.
+The spatial fingerprint of a chip is reproducible. Use it for routing.
+
+---
+
+## The gap that motivates this
+
+`backend.properties()` tells you qubit T2, T1, and readout error
+measured in isolation. It does not tell you:
+
+- Which chip region has the lowest execution noise **right now**
+- That the region with the best T2 can have the worst CX gate errors
+  (the "patch_2 paradox" on ibm_fez — best T2, consistently worst H)
+- That a chip can look normal in single-qubit metrics while
+  3 of 8 spatial regions are in PROBE_INVALID state
+- That a single-tile probe on the default seed-77 routing misses
+  5–7 bits of spatial H variation visible across the full chip
 
 ---
 
@@ -57,198 +75,188 @@ from kleinprobe import KleinProbe
 service = QiskitRuntimeService()
 backend = service.backend("ibm_fez")
 
-probe = KleinProbe(backend)
-snap  = probe.run()
+snap = KleinProbe(backend).run()
 print(snap.report())
-# H=2.92  inv=0.901  dom='100001' ✓  Z=287.3  S=1.0
+# H=2.92  inv=0.901  dom='100001' ✓  Z=287.3
 ```
 
-**~3 seconds execution. Zero additional queue time (PUB mode).**
+A hardware snapshot. `H` is the primary metric — lower is quieter.
 
 ---
 
-## KleinAtlas pipeline — tiled spatial probe
+## Spatial routing — the main use case
 
 ```python
-from kleinprobe import KleinAtlas, classify_tiled, VALID_SPATIAL
+from kleinprobe import classify_tiled
 from kleinprobe.circuit import build_probe_circuit
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from qiskit_ibm_runtime import SamplerV2 as Sampler
 
-# 1. Build atlas from current calibration — no hardcoded patches
-atlas = KleinAtlas(backend)
-atlas.build()
-print(atlas.report())
-# KleinAtlas — ibm_fez
-#   Calibration: 2026-07-08T16:03:08Z
-#   Tiles: 3  (each 18 qubits)
-#   Excluded: 0 qubits
-#   Tile 0  central       T2=87.0µs  RO=0.0100
-#   Tile 1  upper-left    T2=140.0µs RO=0.0082
-#   Tile 2  middle        T2=85.0µs  RO=0.0120
-
-# 2. Transpile probe circuit for each tile
 probe_qc = build_probe_circuit()
+
+# Transpile probe for each tile — optimization_level=0 preserves layout
 pubs = []
 for tile in atlas.tiles:
     pm = generate_preset_pass_manager(
-        optimization_level=3, backend=backend,
-        initial_layout=tile.initial_layout(probe_qc),
+        optimization_level=0, backend=backend,
+        initial_layout={probe_qc.qubits[j]: tile["qubits"][j]
+                        for j in range(18)},
         seed_transpiler=77)
     pubs.append((pm.run(probe_qc),))
 
-# 3. Run all tiles in one job (~4 seconds)
+# Run all tiles in one job — zero queue overhead
 result = Sampler(backend).run(pubs, shots=4096).result()
 
-# 4. Extract metrics and classify
-tile_data = []
-for i, tile in enumerate(atlas.tiles):
-    counts = result[i].data.c.get_counts()
-    # compute H, inv, match from counts...
-    tile_data.append({
-        'match': True, 'H': 3.78, 'inv': 0.820,
-        'region_label': tile.region_label
-    })
-
-validity = classify_tiled(tile_data, backend=backend.name)
-print(validity.execution_map(backend.name))
-# KLEINATLAS EXECUTION MAP — ibm_fez
-#   Tile   Region          Status            H      inv
-#   0      central         ✓ GOOD       3.7800   0.8200
-#   1      upper-left      ⚠ WARNING    4.7000   0.6150
-#   2      middle          ✓ GOOD       4.3900   0.7800
-#
-#   Overall: VALID_ANOMALOUS
-#   Anomaly: Class I — local
+# Classify and rank
+tile_data = [
+    {"match": True, "H": 4.11, "inv": 0.69, "region_label": "central"},
+    {"match": True, "H": 4.85, "inv": 0.68, "region_label": "upper-left"},
+    {"match": True, "H": 5.44, "inv": 0.62, "region_label": "lower-left"},
+]
+sm = classify_tiled(tile_data, backend="ibm_fez")
+print(sm.spatial_map())
 ```
 
-**~4 seconds. One job. Spatial snapshot of the chip's execution environment.**
+Output:
+
+```
+SPATIAL ENVIRONMENT MAP — ibm_fez
+
+  Rank  Region              H       Deviation
+  ──────────────────────────────────────────
+   #1   central           4.112   ▲▲ high
+   #2   upper-left        4.846   ▲▲ high
+   #3   lower-left        5.443   ▲▲▲ very high
+
+  Route to: central (#1)
+  Baseline reference: H_ref = 2.977 ± 0.215
+```
+
+Route to rank #1. Done.
 
 ---
 
-## Hardware state model
+## Deviation states
 
-KleinProbe is a **hardware execution environment estimator** — not a
-circuit correctness validator. The four states describe the local
-hardware state of a chip region. Application fidelity is one downstream
-consequence of the execution environment, not the quantity directly measured.
+States describe how far the probe measurement has drifted from its
+calibrated reference baseline. They describe the **environment** —
+they are **not predictions of application circuit success or failure**.
 
-| State | Condition | Meaning | Routing priority |
-|-------|-----------|---------|-----------------|
-| `OPTIMAL` | match=True, H near baseline, inv normal | Environment at calibrated reference | Preferred |
-| `ELEVATED` | match=True, H or inv drifted | Environment shifted from reference — still usable | Use if no OPTIMAL |
-| `CRITICAL` | match=True, H or inv significantly shifted | Environment substantially outside reference | Avoid if possible |
-| `INVALID` | match=False | Probe cannot characterise region | Discard |
+| State | Condition | Meaning |
+|-------|-----------|---------|
+| `REFERENCE` | H and inv within baseline | Environment at calibrated reference |
+| `DRIFTED` | H or inv moderately above baseline | Environment has shifted |
+| `STRONGLY_DRIFTED` | H or inv substantially above baseline | Environment well outside reference |
+| `PROBE_INVALID` | match=False | Probe cannot characterise this region — discard |
 
-Only `INVALID` warrants discarding. `ELEVATED` and `CRITICAL` are
-hardware environment descriptions — circuits often execute well in
-`ELEVATED` state (HOP=0.898 in direct experiments). `CRITICAL` predicts
-elevated risk, not certain failure. Within any state, lower H = better
-execution environment.
+Only `PROBE_INVALID` warrants discarding.
+`DRIFTED` and `STRONGLY_DRIFTED` describe drift — not failure.
+
+**When all tiles show deviation:** the note
+*"Absolute H drifts with calibration cycles. Relative ordering is the stable signal."*
+appears automatically in the output. Route to rank #1 regardless.
 
 ```python
-from kleinprobe import classify_tile, OPTIMAL, ELEVATED, CRITICAL, INVALID
+from kleinprobe import (classify_tile, classify_tiled,
+    REFERENCE, DRIFTED, STRONGLY_DRIFTED, PROBE_INVALID)
 
-# Marrakesh app circuit experiment (2026-07-10):
-r1 = classify_tile(match=True, H=4.529, inv=0.758, backend='ibm_marrakesh')
-r3 = classify_tile(match=True, H=4.807, inv=0.722, backend='ibm_marrakesh')
-print(r1.state, r1.env_score)  # ELEVATED  35%  → HOP=0.898
-print(r3.state, r3.env_score)  # CRITICAL  30%  → HOP=0.195
-# Route to r1: lower H, lower risk, 4.6× better outcome in experiment
+r = classify_tile(match=True, H=4.11, inv=0.69, backend="ibm_fez",
+                  region_label="central")
+print(r.state)      # STRONGLY_DRIFTED
+print(r.deviation)  # ▲▲▲ very high
+print(r.rank)       # None — set by classify_tiled
 ```
 
-**Backward compatibility:** `VALID_SPATIAL = OPTIMAL` and
-`VALID_ANOMALOUS = ELEVATED` are kept as aliases.
-
----
-
-## Anomaly taxonomy
-
-| Class | Scope | Example |
-|-------|-------|---------|
-| I — Local | Single tile | q91 T2=21µs collapse (Fez Jul8) |
-| II — Regional | Adjacent tiles | Pending documentation |
-| III — Chip-wide | All tiles simultaneously | Marrakesh Jul9 inv depression |
-| IV — Semantic | match=False | Dominant syndrome changed |
-
-Class IV is the only one that invalidates the probe.
-Classes I-III are successful detections.
-
----
-
-## Layout Match Score
-
-Check how well the probe layout matches your circuit before running:
-
-```python
-from kleinprobe import layout_match_score
-
-match = layout_match_score(probe_isa, target_isa)
-print(match.report())
-# Layout Match Score
-#   Probe relevance:   0.833  (15/18 probe qubits shared)  [HIGH]
-#   Target coverage:   0.300  (15/50 target qubits covered)
-
-# With tiling — find which tile best matches your circuit
-best = atlas.best_tile_for(target_isa)
-```
+**Backward compatibility:** old state names are kept as aliases:
+`VALID_SPATIAL = REFERENCE`, `VALID_ANOMALOUS = DRIFTED`,
+`OPTIMAL = REFERENCE`, `ELEVATED = DRIFTED`,
+`CRITICAL = STRONGLY_DRIFTED`, `INVALID = PROBE_INVALID`.
 
 ---
 
 ## What it measures
 
-| Metric | Formula | Meaning |
-|--------|---------|---------|
-| `H` | Shannon entropy of syndrome distribution | Global execution disorder — lower is quieter |
-| `inv` | P(syndrome bit 0 = 1) | Antipodal edge integrity — sensitive to local qubit failures |
-| `f` | P(dominant pattern) | Dominant pattern confidence |
-| `Z_raw` | (f − P₀) / σ | Statistical significance vs flat baseline |
-| `S` | clip(Z/Z₀, 0, 1) | Normalised signal score |
+| Metric | Meaning | Role |
+|--------|---------|------|
+| `H` | Shannon entropy of syndrome distribution | **Primary** — lower = quieter |
+| `inv` | P(syndrome bit 0 = 1) | Secondary — anomaly detection |
+| `Z` | Statistical significance vs flat baseline | Confidence |
+| `environment_shift` | Normalised drift from baseline [0–1] | Display |
+| `env_score` | 1 − environment_shift | Display convenience |
 
-**H and inv measure different things:**
-- H is a global execution quality signal — transfers to co-located circuits
-- inv is a local antipodal qubit integrity signal — sensitive to single-qubit failures
+`H` and `inv` are largely independent (r ≈ 0 on Fez and Marrakesh).
+Both carry independent information about the execution environment.
+
+---
+
+## Layout Match Score
+
+When using the probe to inform routing for a specific circuit,
+the Layout Match Score quantifies how representative the probe is:
+
+```python
+from kleinprobe import compute_lms, lms_label
+
+probe_qubits = tile["qubits"]           # 18 qubits
+app_qubits   = [0, 1, 2, 3, 4, 5]      # after transpilation
+
+lms = compute_lms(probe_qubits, app_qubits)
+print(lms, lms_label(lms))             # 1.0  DIRECT
+```
+
+| Circuit width | Typical LMS | Coverage |
+|--------------|-------------|---------|
+| 6–18 qubits  | 0.90–1.00 | Direct measurement |
+| 20–40 qubits | 0.50–0.80 | High coverage |
+| 40–80 qubits | 0.25–0.50 | Moderate |
+| 80–156 qubits | 0.10–0.25 | Orientation only |
+
+LMS depends on WHERE the circuit qubits land, not just how many.
 
 ---
 
 ## Known hardware baselines
 
-| Backend | Era | H (mean ± σ) | inv (mean ± σ) | Sessions |
-|---------|-----|-------------|----------------|---------|
-| `ibm_fez` | Era 2 (post-Jul5) | 2.977 ± 0.177 | 0.889 ± 0.019 | 11 |
-| `ibm_fez` | Era 1 (Papers 1-6) | 4.500 ± 0.150 | 0.900 ± 0.020 | 6 |
-| `ibm_marrakesh` | — | 3.133 ± 0.269 | 0.855 ± 0.043 | 12 |
-| `ibm_kingston` | — | 2.691 ± 0.097 | 0.890 ± 0.010 | 9 |
+| Backend | Era | H_ref ± σ | inv_ref ± σ | Sessions |
+|---------|-----|-----------|-------------|---------|
+| `ibm_fez` | Era 2 (post-Jul 5 2026) | 2.977 ± 0.215 | 0.889 ± 0.019 | 13 |
+| `ibm_fez` | Era 1 (pre-Jul 5 2026) | 4.500 ± 0.150 | 0.900 ± 0.020 | archived |
+| `ibm_marrakesh` | — | 3.128 ± 0.252 | 0.870 ± 0.026 | 17 |
+| `ibm_kingston` | — | 2.694 ± 0.092 | 0.890 ± 0.010 | 14 |
 
-Fez underwent a calibration regime change ~2026-07-05: H dropped from ~4.50 to ~2.97 bits.
-Era 1 baseline is archived. Era 2 is the current operational baseline.
+Fez underwent a calibration regime change ~2026-07-05: H dropped
+from ~4.50 to ~2.97. Era 1 baseline is archived. Detect regime
+changes by monitoring single-tile H across sessions.
 
 ---
 
 ## Overhead
 
-| Mode | PUBs | Execution | Queue overhead |
-|------|------|-----------|---------------|
+| Mode | PUBs | Time | Queue overhead |
+|------|------|------|---------------|
 | Single probe | 1 | ~3s | 0 |
-| 3-tile atlas | 3 | ~4s | 0 |
-| Atlas + user circuit | N+3 | ~4s | 0 |
+| 3-tile spatial | 3 | ~4s | 0 |
+| 8-tile full scan | 8 | ~8s | 0 |
+| Full scan + app circuit | 16 | ~10s | 0 |
 
-Runs as PUBs in the same job as your experiment — zero additional queue time.
+All modes run as co-execution PUBs — zero additional queue slots.
 
 ---
 
 ## Background
 
-KleinProbe uses a Klein 3×2 stabilizer code circuit (18 qubits, δ=0) as a structured probe.
-The Klein bottle topology provides a non-trivial syndrome structure with a known expected output
-(`100001`), enabling calibration-independent anomaly detection.
+KleinProbe uses a Klein 3×2 stabilizer code (18 qubits, δ=0) as a
+structured probe. The Klein bottle topology provides a non-trivial
+syndrome structure with a known expected output (`100001`), enabling
+calibration-independent anomaly detection and spatial H comparison.
 
-Formalism paper: [doi:10.5281/zenodo.21186259](https://doi.org/10.5281/zenodo.21186259)
+**Formalism paper:**
+[doi:10.5281/zenodo.21186259](https://doi.org/10.5281/zenodo.21186259)
 
-Dataset: [github.com/theoricline/kleinatlas-data](https://github.com/theoricline/kleinatlas-data) (private)
+**Dataset:**
+[github.com/theoricline/kleinatlas-data](https://github.com/theoricline/kleinatlas-data)
+(private — available on request)
 
 ---
 
-## License
-
-MIT — see LICENSE.
+MIT License
