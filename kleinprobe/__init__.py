@@ -89,14 +89,24 @@ from .metrics   import (P0, Z0, N_SYN,
                         dominant_frequency, z_raw,
                         probe_signal_score, compute_all)
 from .atlas     import KleinAtlas, Tile, AtlasMetadata
-from .validity  import (ValidityResult, TiledValidityResult,
-                        classify_tile, classify_tiled,
-                        OPTIMAL, ELEVATED, CRITICAL, INVALID,
-                        VALID_SPATIAL, VALID_ANOMALOUS)
-from .validity  import (compute_lms, lms_label,
-                        effective_score, routing_report)
+from .validity  import (
+    # Core classes
+    ProbeResult, SpatialMap,
+    ValidityResult, TiledValidityResult,   # backward compat aliases
+    # Classification
+    classify_tile, classify_tiled,
+    # New state names
+    REFERENCE, DRIFTED, STRONGLY_DRIFTED, PROBE_INVALID,
+    # Backward compat state aliases
+    VALID_SPATIAL, VALID_ANOMALOUS,
+    OPTIMAL, ELEVATED, CRITICAL, INVALID,
+    # LMS
+    compute_lms, lms_label, effective_score, routing_report,
+    # Baseline tracking
+    BaselineTracker,
+)
 
-__version__ = "0.4.1"
+__version__ = "0.5.1"
 __author__  = "Leonardo Roma"
 __license__ = "MIT"
 
@@ -140,6 +150,8 @@ __all__ = [
     "ELEVATED",
     "CRITICAL",
     "INVALID",
+    # Baseline tracking
+    "BaselineTracker",
     # LMS and routing
     "compute_lms",
     "lms_label",
