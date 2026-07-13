@@ -5,17 +5,17 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name         = "kleinprobe",
-    version      = "0.1.0",
+    version      = "0.5.2",
     author       = "Leonardo Roma",
     author_email = "leonardo.roma@protonmail.com",
-    description  = "Circuit-aware hardware observability layer for IBM Quantum",
+    description  = "Spatial execution environment sensor for IBM Quantum",
     long_description      = long_description,
     long_description_content_type = "text/markdown",
     url          = "https://github.com/theoricline/kleinprobe",
     packages     = find_packages(),
     python_requires = ">=3.9",
     install_requires = [
-        "qiskit>=1.0",
+        "qiskit>=2.0",
         "qiskit-ibm-runtime>=0.20",
         "numpy>=1.24",
     ],
