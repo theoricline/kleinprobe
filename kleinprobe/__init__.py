@@ -102,11 +102,12 @@ from .validity  import (
     OPTIMAL, ELEVATED, CRITICAL, INVALID,
     # LMS
     compute_lms, lms_label, effective_score, routing_report,
+    suggest_layout,
     # Baseline tracking
     BaselineTracker,
 )
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 __author__  = "Leonardo Roma"
 __license__ = "MIT"
 
@@ -151,6 +152,7 @@ __all__ = [
     "CRITICAL",
     "INVALID",
     # Baseline tracking
+    "suggest_layout",
     "BaselineTracker",
     # LMS and routing
     "compute_lms",

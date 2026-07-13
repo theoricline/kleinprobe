@@ -833,3 +833,226 @@ class BaselineTracker:
         mean = sum(values) / len(values)
         var  = sum((x - mean) ** 2 for x in values) / (len(values) - 1)
         return var ** 0.5
+
+
+# ── Layout suggestion ──────────────────────────────────────────────────────
+
+def suggest_layout(
+    tile_results:        List[dict],
+    user_circuit_qubits: List[int],
+    backend:             str = "",
+) -> dict:
+    """
+    Suggest the best tile layout for a user circuit.
+
+    After running KleinAtlas spatial scout, call this to get:
+    - The recommended tile (lowest H, usable)
+    - The initial_layout mapping user circuit qubits → physical qubits
+    - The LMS between probe tile and user circuit footprint
+    - The effective score (env × LMS confidence attenuation)
+
+    Args:
+        tile_results:        list of dicts from classify_tiled()
+                             each with: match, H, inv, region_label,
+                             plus 'qubits' (18 physical qubit indices)
+        user_circuit_qubits: physical qubits the user circuit currently
+                             uses (after transpilation), OR number of
+                             qubits needed if circuit not yet transpiled
+        backend:             chip name for baseline reference
+
+    Returns:
+        dict with keys:
+            recommended_tile:  index of best tile
+            region:            region label
+            initial_layout:    {user_qubit_index: physical_qubit} mapping
+                               maps user circuit qubit i → tile syndrome qubit i
+                               (syndrome qubits = tile_qubits[12:18])
+            lms:               Layout Match Score
+            env_score:         environment quality
+            effective_score:   env × (0.5 + 0.5×LMS)
+            all_tiles:         ranked list of all tiles with scores
+
+    Usage:
+        # After running the spatial scout:
+        sm = classify_tiled(tile_data, backend="ibm_fez")
+
+        # For a 6-qubit user circuit not yet transpiled:
+        suggestion = suggest_layout(
+            tile_results = tile_data_with_qubits,
+            user_circuit_qubits = 6,   # just the count
+            backend = "ibm_fez"
+        )
+        print(suggestion["region"])           # e.g. "central"
+        print(suggestion["initial_layout"])   # {0:65, 1:66, 2:67, ...}
+
+        # Then transpile:
+        pm = generate_preset_pass_manager(
+            optimization_level=3, backend=backend,
+            initial_layout=suggestion["initial_layout"])
+        isa = pm.run(user_circuit)
+
+    Notes:
+        - If user_circuit_qubits is an int N, the layout maps
+          circuit qubit i → tile syndrome qubit i for i in range(N).
+          Best for N ≤ 6 (fits on syndrome register, LMS=1.0).
+        - If user_circuit_qubits is a list of physical qubits
+          (already transpiled), LMS is computed as overlap with tile.
+        - For circuits wider than 18 qubits, LMS will be < 1.
+          Consider running multiple tiles and combining rankings.
+    """
+    # Determine whether user passed qubit count or qubit list
+    if isinstance(user_circuit_qubits, int):
+        n_user  = user_circuit_qubits
+        app_set = None   # not yet transpiled — no overlap computable
+    else:
+        n_user  = len(user_circuit_qubits)
+        app_set = set(user_circuit_qubits)
+
+    ranked = []
+    for i, t in enumerate(tile_results):
+        tile_qubits = t.get("qubits", [])
+        syn_qubits  = tile_qubits[12:18] if len(tile_qubits) >= 18 else tile_qubits
+        match       = t.get("match", False)
+        H           = t.get("H", 99.0)
+        inv         = t.get("inv", 0.0)
+        region      = t.get("region_label", t.get("region", f"tile_{i}"))
+
+        if not match:
+            ranked.append({
+                "tile_index": i, "region": region,
+                "state": "PROBE_INVALID",
+                "H": H, "env_score": 0.0,
+                "lms": 0.0, "effective_score": 0.0,
+                "usable": False,
+            })
+            continue
+
+        # Classify
+        r       = classify_tile(match=match, H=H, inv=inv, backend=backend,
+                                region_label=region)
+        env     = r.env_score
+
+        # Compute LMS
+        if app_set is not None:
+            lms = compute_lms(tile_qubits, list(app_set))
+        elif n_user <= len(syn_qubits):
+            # Small circuit fits on syndrome qubits — LMS=1.0
+            lms = 1.0
+        else:
+            # Larger circuit — partial coverage of full tile
+            lms = min(1.0, len(tile_qubits) / n_user)
+
+        eff = effective_score(env, lms)
+
+        ranked.append({
+            "tile_index":     i,
+            "region":         region,
+            "state":          r.state,
+            "H":              H,
+            "env_score":      env,
+            "lms":            lms,
+            "effective_score":eff,
+            "syn_qubits":     syn_qubits,
+            "all_qubits":     tile_qubits,
+            "usable":         True,
+        })
+
+    # Sort by effective_score desc, then H asc as tiebreaker
+    usable  = [t for t in ranked if t["usable"]]
+    invalid = [t for t in ranked if not t["usable"]]
+    # Primary sort: H ascending (lower H = quieter environment)
+    # This is the primary validated signal.
+    # effective_score (env x LMS) as secondary for cases where LMS differs
+    usable.sort(key=lambda t: (t["H"] if t["lms"] >= 0.9
+                               else -t["effective_score"], t["H"]))
+    all_ranked = usable + invalid
+
+    if not usable:
+        return {
+            "recommended_tile": None,
+            "region":           None,
+            "initial_layout":   {},
+            "lms":              0.0,
+            "env_score":        0.0,
+            "effective_score":  0.0,
+            "tiles_used":       [],
+            "high_confidence":  False,
+            "all_tiles":        all_ranked,
+            "note":             "All tiles PROBE_INVALID — cannot suggest layout",
+        }
+
+    best      = usable[0]
+    syn_q     = best["syn_qubits"]
+
+    # Build initial_layout
+    # Maps user circuit qubit i → physical qubit
+    if n_user <= len(syn_q):
+        # Small circuit (≤6q): map onto syndrome qubits — LMS=1.0
+        layout      = {i: syn_q[i] for i in range(n_user)}
+        used_regions = [best["region"]]
+        note        = (f"Circuit ({n_user}q) fits on syndrome qubits of "
+                       f"{best['region']}. LMS=1.0.")
+
+    elif n_user <= len(best["all_qubits"]):
+        # Medium circuit (7-18q): map onto full tile — LMS=1.0
+        layout      = {i: best["all_qubits"][i] for i in range(n_user)}
+        used_regions = [best["region"]]
+        note        = (f"Circuit ({n_user}q) mapped onto full tile "
+                       f"{best['region']} (18q). LMS=1.0.")
+
+    else:
+        # Large circuit (19-144q): combine N quietest tiles
+        # Tiles are non-overlapping by design → LMS=1.0 if circuit fits
+        import math
+        n_tiles_needed = math.ceil(n_user / 18)
+        best_tiles     = usable[:n_tiles_needed]   # already sorted by H
+        combined_q     = []
+        used_regions   = []
+        for t in best_tiles:
+            combined_q   += t["all_qubits"]
+            used_regions.append(t["region"])
+
+        if n_user <= len(combined_q):
+            layout = {i: combined_q[i] for i in range(n_user)}
+            lms_multi = 1.0   # all circuit qubits within probed region
+            note   = (f"Circuit ({n_user}q) mapped across "
+                      f"{len(best_tiles)} tiles "
+                      f"({', '.join(used_regions)}). "
+                      f"LMS=1.0 (all qubits in probed region).")
+        else:
+            # Exceeds full chip — shouldn't happen on 156q chips
+            layout = {i: combined_q[i % len(combined_q)]
+                      for i in range(n_user)}
+            lms_multi = round(len(combined_q) / n_user, 3)
+            note   = (f"Circuit ({n_user}q) exceeds available probed "
+                      f"qubits ({len(combined_q)}). "
+                      f"Layout wraps. LMS={lms_multi:.2f}.")
+
+        # Update best tile lms to reflect multi-tile coverage
+        best = dict(best)
+        best["lms"] = lms_multi if n_user <= len(combined_q) else lms_multi
+
+    # High confidence: circuit fully covered by REFERENCE or DRIFTED tiles
+    # Low confidence:  layout includes PROBE_INVALID region or LMS < 1.0
+    n_invalid_used = sum(
+        1 for r in used_regions
+        for t in all_ranked
+        if t.get("region") == r and not t.get("usable", True)
+    )
+    high_confidence = (best["lms"] >= 1.0 and n_invalid_used == 0)
+
+    return {
+        "recommended_tile": best["tile_index"],
+        "region":           best["region"],
+        "initial_layout":   layout,
+        "lms":              best["lms"],
+        "env_score":        best["env_score"],
+        "effective_score":  best["effective_score"],
+        "H":                best["H"],
+        "state":            best["state"],
+        "syn_qubits":       syn_q,
+        "tiles_used":       used_regions,
+        "high_confidence":  high_confidence,
+        "all_tiles":        all_ranked,
+        "note":             note,
+    }
