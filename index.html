@@ -153,7 +153,7 @@
       <a href="#atlas">Atlas</a>
       <a href="#validity">Ranking</a>
       <a href="#metrics">Metrics</a>
-      <a href="#baselines">Baselines</a>
+      <a href="#baselines">Baseline</a>
       <a href="#paper">Paper</a>
       <a href="https://github.com/theoricline/kleinprobe">GitHub</a>
     </div>
@@ -505,10 +505,50 @@ sm = <span class="fn">classify_tiled</span>(tile_data, backend=<span class="nm">
       <code>INVALID = PROBE_INVALID</code>.
     </p>
 
-    <h2 id="baselines"><span class="tag">baselines</span>Hardware reference library</h2>
+    <h2 id="baselines"><span class="tag">v0.5.1</span>Self-calibrating baseline</h2>
     <p>
-      KleinProbe ships with validated reference values from real hardware sessions.
-      Snapshots deviating &gt;2σ from baseline trigger a drift alert automatically.
+      Deviation annotations compare your probe reading to a reference baseline.
+      By default the hardcoded July 2026 experimental values are used.
+      <code>BaselineTracker</code> replaces these with a rolling baseline
+      from your own sessions — self-updating, user-owned, zero maintenance required.
+    </p>
+
+    <div style="background:var(--bg-card);border-left:3px solid var(--blue);
+                padding:10px 14px;border-radius:0 4px 4px 0;font-size:13px;margin:12px 0">
+      <strong>The spatial ranking needs no baseline.</strong>
+      <code>min(H)</code> across tiles is self-contained within a single run.
+      <code>BaselineTracker</code> improves deviation annotations only.
+    </div>
+
+    <div class="code-block">
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> BaselineTracker, classify_tiled<br>
+<span class="kw">import</span> json, pathlib<br>
+<br>
+<span class="c"># Bootstrap from existing session JSONs</span><br>
+sessions = [json.<span class="fn">loads</span>(f.<span class="fn">read_text</span>())<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">for</span> f <span class="kw">in</span> pathlib.Path(<span class="nm">"sessions/ibm_fez"</span>).<span class="fn">glob</span>(<span class="nm">"*.json"</span>)]<br>
+tracker = BaselineTracker.<span class="fn">from_sessions</span>(sessions, backend=<span class="nm">"ibm_fez"</span>)<br>
+<span class="kw">print</span>(tracker.<span class="fn">status</span>())<br>
+<span class="c"># BaselineTracker(ibm_fez) — ready (13 sessions). H_ref=2.867 ± 0.162</span><br>
+<br>
+<span class="c"># Update after each session — auto-detects regime changes</span><br>
+result = tracker.<span class="fn">update</span>(H=<span class="nm">3.031</span>, inv=<span class="nm">0.877</span>)<br>
+<span class="kw">if</span> result[<span class="nm">"regime_change"</span>]:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tracker.<span class="fn">reset</span>()  <span class="c"># start fresh after confirmed era change</span><br>
+<br>
+<span class="c"># Pass to classify_tiled for calibrated annotations</span><br>
+sm = <span class="fn">classify_tiled</span>(tile_data, backend=<span class="nm">"ibm_fez"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;H_ref=tracker.H_ref, H_std=tracker.H_std)<br>
+<br>
+<span class="c"># Persist across sessions</span><br>
+tracker.<span class="fn">save</span>(<span class="nm">"baseline_ibm_fez.json"</span>)<br>
+tracker = BaselineTracker.<span class="fn">load</span>(<span class="nm">"baseline_ibm_fez.json"</span>)<br>
+    </div>
+
+    <h2 id="hw-baselines" style="margin-top:32px"><span class="tag">baselines</span>Hardware reference library</h2>
+    <p>
+      Hardcoded initial priors — active until <code>BaselineTracker</code>
+      collects enough user sessions to override them.
     </p>
 
     <table class="baselines">
@@ -579,11 +619,51 @@ spatial.spatial_variance <span class="c"># scalar uniformity measure</span>
 
     <p style="font-size:13px; color:var(--text-dim)">
       <strong style="color:var(--text)">Runtime:</strong>
-      ~3s single probe (δ=0) · ~4s 3-tile probe · zero additional queue time (PUB mode).
-      The previous ~7s figure included the full δ-family (4 PUBs).
+      ~3s single probe · ~11s 8-tile full scan · zero additional queue time (co-execution PUBs).
+      Run the full scan once per chip, not before every job — the spatial fingerprint
+      is stable across calibration cycles (central tile ranked #1 in 10/10 ibm_fez runs).
     </p>
 
-    <h2 style="margin-top:40px"><span class="tag">v0.3.0 · lms</span>Layout Match Score</h2>
+    <h2 id="suggest" style="margin-top:40px"><span class="tag">v0.5.2</span>Layout suggestion</h2>
+    <p>
+      After the spatial scout, <code>suggest_layout()</code> maps your circuit directly
+      to the best tile and returns an <code>initial_layout</code> dict for the Qiskit transpiler.
+      <code>high_confidence=True</code> means LMS=1.0 — all circuit qubits are in the probed region.
+    </p>
+
+    <div class="code-block">
+<span class="kw">from</span> kleinprobe <span class="kw">import</span> suggest_layout, classify_tiled<br>
+<br>
+sm         = <span class="fn">classify_tiled</span>(tile_data, backend=<span class="nm">"ibm_fez"</span>)<br>
+suggestion = <span class="fn">suggest_layout</span>(tile_data_with_qubits,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;user_circuit_qubits=<span class="nm">6</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;backend=<span class="nm">"ibm_fez"</span>)<br>
+<br>
+<span class="kw">print</span>(suggestion[<span class="nm">"region"</span>])            <span class="c"># "central"</span><br>
+<span class="kw">print</span>(suggestion[<span class="nm">"high_confidence"</span>])   <span class="c"># True</span><br>
+<span class="kw">print</span>(suggestion[<span class="nm">"initial_layout"</span>])    <span class="c"># {0:65, 1:66, 2:67, 3:68, 4:69, 5:70}</span><br>
+<br>
+<span class="c"># Paste directly into transpiler</span><br>
+pm  = <span class="fn">generate_preset_pass_manager</span>(<br>
+&nbsp;&nbsp;&nbsp;&nbsp;optimization_level=<span class="nm">3</span>, backend=backend,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;initial_layout=suggestion[<span class="nm">"initial_layout"</span>])<br>
+isa = pm.<span class="fn">run</span>(user_circuit)<br>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px">
+      <tr style="background:var(--bg3)">
+        <th style="text-align:left;padding:7px 12px;border:1px solid var(--border)">Circuit width</th>
+        <th style="text-align:left;padding:7px 12px;border:1px solid var(--border)">Tiles used</th>
+        <th style="text-align:left;padding:7px 12px;border:1px solid var(--border)">LMS</th>
+        <th style="text-align:left;padding:7px 12px;border:1px solid var(--border)">Confidence</th>
+      </tr>
+      <tr><td style="padding:6px 12px;border:1px solid var(--border)">≤6 qubits</td><td style="padding:6px 12px;border:1px solid var(--border)">1 (syndrome)</td><td style="padding:6px 12px;border:1px solid var(--border)">1.0</td><td style="padding:6px 12px;border:1px solid var(--border);color:var(--green)">✓ HIGH</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid var(--border)">7–18 qubits</td><td style="padding:6px 12px;border:1px solid var(--border)">1 (full tile)</td><td style="padding:6px 12px;border:1px solid var(--border)">1.0</td><td style="padding:6px 12px;border:1px solid var(--border);color:var(--green)">✓ HIGH</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid var(--border)">19–126 qubits</td><td style="padding:6px 12px;border:1px solid var(--border)">2–7 tiles</td><td style="padding:6px 12px;border:1px solid var(--border)">1.0</td><td style="padding:6px 12px;border:1px solid var(--border);color:var(--green)">✓ HIGH</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid var(--border)">&gt;126 qubits</td><td style="padding:6px 12px;border:1px solid var(--border)">partial</td><td style="padding:6px 12px;border:1px solid var(--border)">&lt;1.0</td><td style="padding:6px 12px;border:1px solid var(--border);color:var(--amber)">⚠ LOW</td></tr>
+    </table>
+
+    <h2 id="lms" style="margin-top:40px"><span class="tag">v0.3.0 · lms</span>Layout Match Score</h2>
     <p>
       Before running KleinProbe, check how well the probe layout matches
       your target circuit's physical qubit placement.

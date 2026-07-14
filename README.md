@@ -215,6 +215,56 @@ LMS depends on WHERE the circuit qubits land, not just how many.
 
 ---
 
+## Self-calibrating baseline
+
+The deviation annotations (▲ moderate / ▲▲ high) compare your probe
+reading to a reference baseline. By default this uses hardcoded values
+from the July 2026 experimental dataset. For accurate annotations on
+your own chip in your own time period, use `BaselineTracker`:
+
+```python
+from kleinprobe import BaselineTracker, classify_tiled
+
+tracker = BaselineTracker(backend="ibm_fez", window=10, min_sessions=5)
+
+# After each single-tile session — tracker updates itself
+tracker.update(H=2.871, inv=0.878)
+tracker.update(H=2.622, inv=0.872)
+tracker.update(H=2.818, inv=0.833)
+# ... 5+ sessions and it overrides the hardcoded defaults
+
+# Pass rolling baseline to classify_tiled
+sm = classify_tiled(tile_data, backend="ibm_fez",
+                    H_ref=tracker.H_ref,
+                    H_std=tracker.H_std)
+
+# Regime change detection — fires when H jumps >5σ
+result = tracker.update(H=4.5, inv=0.85)
+if result["regime_change"]:
+    print("⚠ Possible calibration regime change detected")
+    tracker.reset()  # start fresh after confirmed regime change
+
+# Bootstrap from existing session JSONs
+import json, pathlib
+sessions = [json.loads(f.read_text())
+            for f in pathlib.Path("sessions/ibm_fez").glob("*.json")]
+tracker  = BaselineTracker.from_sessions(sessions, backend="ibm_fez")
+print(tracker.status())
+# BaselineTracker(ibm_fez) — ready (13 sessions). H_ref=2.867 ± 0.162
+
+# Persist across Python sessions
+tracker.save("baseline_ibm_fez.json")
+tracker = BaselineTracker.load("baseline_ibm_fez.json")
+```
+
+**The spatial ranking needs no baseline at all** — `min(H)` across
+tiles is self-contained within a single run and is independent of
+any historical reference. The baseline only affects the deviation
+annotations. When fewer than `min_sessions` have been collected,
+the tracker falls back to the hardcoded defaults automatically.
+
+---
+
 ## Known hardware baselines
 
 | Backend | Era | H_ref ± σ | inv_ref ± σ | Sessions |
@@ -236,10 +286,66 @@ changes by monitoring single-tile H across sessions.
 |------|------|------|---------------|
 | Single probe | 1 | ~3s | 0 |
 | 3-tile spatial | 3 | ~4s | 0 |
-| 8-tile full scan | 8 | ~8s | 0 |
-| Full scan + app circuit | 16 | ~10s | 0 |
+| 8-tile full scan | 8 | ~11s | 0 |
+| Full scan + app circuit | 16 | ~15s | 0 |
+
+**When to run the full scan:**
+- Once when starting work on a new chip
+- When switching between chips
+- Before a long or expensive experiment
+- When H values seem higher than usual (possible regime change)
+
+You do not need to run it before every job. The spatial fingerprint is stable across calibration cycles — the same region ranks first in 10/10 runs on ibm_fez.
 
 All modes run as co-execution PUBs — zero additional queue slots.
+
+---
+
+## Layout suggestion
+
+After the spatial scout, `suggest_layout()` maps your circuit to the best tile
+and returns an `initial_layout` dict ready to paste into the Qiskit transpiler:
+
+```python
+from kleinprobe import suggest_layout, classify_tiled
+
+sm = classify_tiled(tile_data, backend="ibm_fez")
+
+# For any circuit size
+suggestion = suggest_layout(
+    tile_results = tile_data_with_qubits,
+    user_circuit_qubits = 6,       # or 30, or 100
+    backend = "ibm_fez"
+)
+
+print(suggestion["region"])          # "central"
+print(suggestion["high_confidence"]) # True
+print(suggestion["initial_layout"])  # {0:65, 1:66, 2:67, 3:68, 4:69, 5:70}
+print(suggestion["note"])            # "Circuit (6q) fits on syndrome qubits. LMS=1.0."
+
+# Paste directly into transpiler
+pm = generate_preset_pass_manager(
+    optimization_level=3, backend=backend,
+    initial_layout=suggestion["initial_layout"])
+isa = pm.run(user_circuit)
+```
+
+**`high_confidence`** is `True` when the circuit is fully covered by probed qubits
+(LMS=1.0, no PROBE_INVALID tiles used). `False` means the layout extends into
+unprobed regions — consider reducing circuit size or waiting for recalibration.
+
+**Multi-tile scaling** — LMS=1.0 is maintained up to the total probed qubit count:
+
+| Circuit width | Tiles used | LMS | Confidence |
+|--------------|-----------|-----|-----------|
+| ≤6 qubits | 1 (syndrome qubits) | 1.0 | ✓ HIGH |
+| 7–18 qubits | 1 (full tile) | 1.0 | ✓ HIGH |
+| 19–36 qubits | 2 quietest tiles | 1.0 | ✓ HIGH |
+| 19–126 qubits | up to 7 tiles | 1.0 | ✓ HIGH |
+| >126 qubits | partial coverage | <1.0 | ⚠ LOW |
+
+`SpatialMap` also exposes `routing_report(n_qubits)` for a combined spatial map
+and layout suggestion in a single printable string.
 
 ---
 
